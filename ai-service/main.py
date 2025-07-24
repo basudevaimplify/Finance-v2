@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 import openai
 from openai import OpenAI
 import asyncpg
@@ -85,10 +85,14 @@ class Document(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    model_config = ConfigDict(alias_generator=_to_camel_case, populate_by_name=True)
+
 class DocumentUploadResponse(BaseModel):
     document: Document
     message: str
     processing_time_ms: int
+
+    model_config = ConfigDict(alias_generator=_to_camel_case, populate_by_name=True)
 
 # Authentication Models
 class LoginRequest(BaseModel):
@@ -136,6 +140,15 @@ def generate_token(user_id: str) -> str:
     """Generate simple token (in production, use JWT)"""
     return hashlib.sha256(f"{user_id}{SECRET_KEY}".encode()).hexdigest()
 
+def _to_camel_case(s: str) -> str:
+    """Convert snake_case string to camelCase."""
+    parts = s.split('_')
+    return parts[0] + ''.join(p.capitalize() for p in parts[1:])
+
+def record_to_camel(record: Any) -> Dict[str, Any]:
+    """Convert an asyncpg Record to a camelCase keyed dict."""
+    return {_to_camel_case(k): v for k, v in dict(record).items()}
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db = Depends(get_db)) -> User:
     """Get current authenticated user"""
     token = credentials.credentials
@@ -180,8 +193,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files for React frontend
+# Mount static files for React frontend and uploaded files
 app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 # Initialize OpenAI client
 openai_client = None
@@ -1002,7 +1016,98 @@ async def get_documents(current_user: User = Depends(get_current_user), db = Dep
             current_user.id, current_user.tenant_id
         )
 
-        return [dict(doc) for doc in documents]
+
+        return [record_to_camel(doc) for doc in documents]
+
+
+@app.get("/api/documents/{document_id}")
+async def get_document(document_id: str, current_user: User = Depends(get_current_user), db = Depends(get_db)):
+    """Get a single document by ID"""
+    async with db.acquire() as conn:
+        doc = await conn.fetchrow(
+            """
+            SELECT id, file_name, original_name, mime_type, file_size,
+                   file_path, document_type, status, metadata, extracted_data,
+                   created_at, updated_at
+            FROM documents
+            WHERE id = $1 AND uploaded_by = $2 AND tenant_id = $3
+            """,
+            document_id, current_user.id, current_user.tenant_id
+        )
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return record_to_camel(doc)
+
+
+@app.delete("/api/documents/{document_id}")
+async def delete_document(document_id: str, current_user: User = Depends(get_current_user), db = Depends(get_db)):
+    """Delete a document and its file"""
+    async with db.acquire() as conn:
+        doc = await conn.fetchrow(
+            "SELECT file_path FROM documents WHERE id = $1 AND uploaded_by = $2 AND tenant_id = $3",
+            document_id, current_user.id, current_user.tenant_id
+        )
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        await conn.execute(
+            "DELETE FROM documents WHERE id = $1 AND uploaded_by = $2 AND tenant_id = $3",
+            document_id, current_user.id, current_user.tenant_id
+        )
+
+    file_path = Path(doc["file_path"])
+    if file_path.exists():
+        try:
+            file_path.unlink()
+        except Exception as e:
+            logger.warning(f"Failed to delete file {file_path}: {e}")
+
+    return {"message": "Document deleted successfully"}
+
+
+@app.get("/api/extracted-data")
+async def get_extracted_data(period: Optional[str] = None, docType: Optional[str] = None,
+                             current_user: User = Depends(get_current_user), db = Depends(get_db)):
+    """Return extracted data records for use in data tables"""
+    async with db.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, document_type, file_name, metadata, extracted_data,
+                   created_at, updated_at
+            FROM documents
+            WHERE uploaded_by = $1 AND tenant_id = $2
+            ORDER BY created_at DESC
+            """,
+            current_user.id, current_user.tenant_id
+        )
+
+    docs = [dict(row) for row in rows]
+
+    if period and period != "all":
+        docs = [d for d in docs if (d.get("metadata") or {}).get("period", "Q1_2025") == period]
+
+    extracted = []
+    for d in docs:
+        edata = d.get("extracted_data") or {}
+        if not edata or "records" not in edata:
+            continue
+        extracted.append({
+            "id": d["id"],
+            "documentId": d["id"],
+            "documentType": d["document_type"],
+            "fileName": d["file_name"],
+            "data": edata.get("records", []),
+            "headers": edata.get("headers", []),
+            "totalRecords": edata.get("total_records", 0),
+            "extractedAt": edata.get("extractedAt") or d.get("updated_at") or d.get("created_at"),
+            "confidence": 0.95,
+            "extractionMethod": edata.get("extraction_method", "automated")
+        })
+
+    if docType and docType != "all":
+        extracted = [e for e in extracted if e["documentType"] == docType]
+
+    return extracted
 
 @app.post("/api/documents/upload", response_model=DocumentUploadResponse)
 async def upload_document(
