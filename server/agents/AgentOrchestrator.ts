@@ -1,6 +1,7 @@
 import { ClassifierAgent, ClassificationResult } from './ClassifierAgent';
 import { DataExtractionAgent, AgentExtractionResult } from './DataExtractionAgent';
 import { storage } from '../storage';
+import { aiServiceIntegration } from '../services/aiServiceIntegration';
 
 export interface ProcessingResult {
   documentId: string;
@@ -10,6 +11,8 @@ export interface ProcessingResult {
   processingStatus: 'success' | 'partial' | 'failed';
   processingTime: number;
   errors?: string[];
+  journalEntriesGenerated?: number;
+  aiEnhanced?: boolean;
 }
 
 export class AgentOrchestrator {
@@ -33,42 +36,103 @@ export class AgentOrchestrator {
     const errors: string[] = [];
     
     console.log(`Starting agent processing for document: ${documentId}`);
-    
+
     try {
-      // Step 1: Classify the document
-      console.log('Step 1: Document Classification');
-      const classification = await this.classifierAgent.classifyDocument(filePath, fileName, mimeType);
-      
+      // Debug: Check AI service integration status
+      console.log('🔍 Checking AI service integration status...');
+      const aiStatus = aiServiceIntegration.getStatus();
+      console.log('AI Service Status:', aiStatus);
+
+      // Try AI service first, fallback to existing agents
+      console.log('🤖 Attempting AI-enhanced processing...');
+      const aiResult = await aiServiceIntegration.processDocument(
+        filePath,
+        fileName,
+        mimeType,
+        async (path) => {
+          // Fallback function using existing agents
+          console.log('🔄 Using fallback agent processing...');
+          const classification = await this.classifierAgent.classifyDocument(path, fileName, mimeType);
+          const extraction = await this.dataExtractionAgent.extractData(path, classification.documentType, mimeType);
+
+          return {
+            classificationType: classification.documentType,
+            classificationConfidence: classification.confidence,
+            extractedRecords: extraction.totalRecords,
+            extractionConfidence: extraction.confidence,
+            extractedData: extraction.records
+          };
+        }
+      );
+
+      console.log('📊 Processing result:', {
+        aiEnhanced: aiResult.aiEnhanced,
+        classificationType: aiResult.classificationType,
+        classificationConfidence: aiResult.classificationConfidence,
+        extractedRecords: aiResult.extractedRecords,
+        extractionConfidence: aiResult.extractionConfidence
+      });
+
+      // Convert AI result to legacy format for compatibility
+      const classification: ClassificationResult = {
+        documentType: aiResult.classificationType,
+        confidence: aiResult.classificationConfidence,
+        reasoning: aiResult.aiEnhanced ? 'AI-enhanced classification' : 'Pattern-based classification',
+        keyIndicators: [],
+        contentSummary: `Processed with ${aiResult.aiEnhanced ? 'AI enhancement' : 'fallback processing'}`
+      };
+
+      const extraction: AgentExtractionResult = {
+        headers: aiResult.extractedData.length > 0 ? Object.keys(aiResult.extractedData[0]) : [],
+        records: aiResult.extractedData,
+        totalRecords: aiResult.extractedRecords,
+        extractedAt: new Date().toISOString(),
+        extractionMethod: aiResult.aiEnhanced ? 'ai_assisted' : 'automated',
+        confidence: aiResult.extractionConfidence,
+        metadata: {
+          fileFormat: mimeType,
+          documentType: aiResult.classificationType,
+          dataQuality: aiResult.extractionConfidence,
+          issues: []
+        }
+      };
+
       // Update document with classification
       await storage.updateDocument(documentId, {
         documentType: classification.documentType as any,
         status: 'classified',
         metadata: {
           contentAnalysis: classification,
-          classificationMethod: 'agent_pipeline'
+          classificationMethod: aiResult.aiEnhanced ? 'ai_enhanced' : 'agent_pipeline',
+          aiEnhanced: aiResult.aiEnhanced
         }
       });
-      
-      // Step 2: Extract data from the document
-      console.log('Step 2: Data Extraction');
-      const extraction = await this.dataExtractionAgent.extractData(
-        filePath,
-        classification.documentType,
-        mimeType
-      );
-      
+
       // Step 3: Prepare database records
       console.log('Step 3: Database Mapping');
       const databaseRecords = extraction.records || [];
-      
+
       // Step 4: Update document with extracted data
       await storage.updateDocument(documentId, {
         status: 'extracted',
         extractedData: {
           ...extraction,
-          databaseMapping: databaseRecords
+          databaseMapping: databaseRecords,
+          aiEnhanced: aiResult.aiEnhanced
         }
       });
+
+      // Step 5: Generate journal entries for financial documents
+      console.log('Step 5: Journal Entry Generation');
+      const journalEntries = await this.generateJournalEntries(
+        classification.documentType,
+        extraction.records,
+        documentId,
+        userId,
+        tenantId
+      );
+
+      console.log(`Generated ${journalEntries.length} journal entries for document ${documentId}`);
       
       // Step 5: Create audit trail
       await storage.createAuditTrail({
@@ -101,7 +165,9 @@ export class AgentOrchestrator {
         databaseRecords,
         processingStatus: 'success',
         processingTime,
-        errors: errors.length > 0 ? errors : undefined
+        errors: errors.length > 0 ? errors : undefined,
+        journalEntriesGenerated: journalEntries.length,
+        aiEnhanced: aiResult.aiEnhanced
       };
       
     } catch (error) {
@@ -255,5 +321,115 @@ export class AgentOrchestrator {
       documentTypeBreakdown: {},
       recentActivity: []
     };
+  }
+
+  /**
+   * Generate journal entries for financial documents following double-entry bookkeeping
+   */
+  private async generateJournalEntries(
+    documentType: string,
+    extractedRecords: any[],
+    documentId: string,
+    userId: string,
+    tenantId: string
+  ): Promise<any[]> {
+    const journalEntries: any[] = [];
+
+    try {
+      if (documentType === 'bank_statement') {
+        // Generate journal entries for bank statement transactions
+        for (const record of extractedRecords) {
+          const debitAmount = parseFloat(record.debitAmount || record.debit_amount || '0');
+          const creditAmount = parseFloat(record.creditAmount || record.credit_amount || '0');
+          const description = record.description || record.transaction_description || 'Bank Transaction';
+          const transactionDate = record.date || record.transaction_date || new Date().toISOString().split('T')[0];
+
+          if (debitAmount > 0) {
+            // Money going out - Debit expense/asset, Credit bank
+            const journalEntry = await storage.createJournalEntry({
+              documentId,
+              entryDate: transactionDate,
+              description: `Bank Debit: ${description}`,
+              debitAccount: 'Expenses',
+              creditAccount: 'Bank Account',
+              amount: debitAmount,
+              reference: record.transactionId || record.reference_no || '',
+              tenantId,
+              createdBy: userId
+            });
+            journalEntries.push(journalEntry);
+          }
+
+          if (creditAmount > 0) {
+            // Money coming in - Debit bank, Credit revenue/liability
+            const journalEntry = await storage.createJournalEntry({
+              documentId,
+              entryDate: transactionDate,
+              description: `Bank Credit: ${description}`,
+              debitAccount: 'Bank Account',
+              creditAccount: 'Revenue',
+              amount: creditAmount,
+              reference: record.transactionId || record.reference_no || '',
+              tenantId,
+              createdBy: userId
+            });
+            journalEntries.push(journalEntry);
+          }
+        }
+      } else if (documentType === 'sales_register' || documentType === 'gst') {
+        // Generate journal entries for sales transactions
+        for (const record of extractedRecords) {
+          const totalAmount = parseFloat(record.totalAmount || record.total_amount || '0');
+          const customerName = record.customerName || record.customer_name || 'Customer';
+          const invoiceDate = record.date || record.invoice_date || new Date().toISOString().split('T')[0];
+
+          if (totalAmount > 0) {
+            // Sales transaction - Debit Accounts Receivable, Credit Sales Revenue
+            const journalEntry = await storage.createJournalEntry({
+              documentId,
+              entryDate: invoiceDate,
+              description: `Sales Invoice: ${customerName}`,
+              debitAccount: 'Accounts Receivable',
+              creditAccount: 'Sales Revenue',
+              amount: totalAmount,
+              reference: record.invoiceNo || record.invoice_no || '',
+              tenantId,
+              createdBy: userId
+            });
+            journalEntries.push(journalEntry);
+          }
+        }
+      } else if (documentType === 'purchase_register') {
+        // Generate journal entries for purchase transactions
+        for (const record of extractedRecords) {
+          const totalAmount = parseFloat(record.totalAmount || record.total_amount || '0');
+          const vendorName = record.vendorName || record.vendor_name || 'Vendor';
+          const purchaseDate = record.date || record.purchase_date || new Date().toISOString().split('T')[0];
+
+          if (totalAmount > 0) {
+            // Purchase transaction - Debit Purchases/Inventory, Credit Accounts Payable
+            const journalEntry = await storage.createJournalEntry({
+              documentId,
+              entryDate: purchaseDate,
+              description: `Purchase Invoice: ${vendorName}`,
+              debitAccount: 'Purchases',
+              creditAccount: 'Accounts Payable',
+              amount: totalAmount,
+              reference: record.billNo || record.bill_no || '',
+              tenantId,
+              createdBy: userId
+            });
+            journalEntries.push(journalEntry);
+          }
+        }
+      }
+
+      console.log(`✅ Generated ${journalEntries.length} journal entries for ${documentType}`);
+      return journalEntries;
+
+    } catch (error) {
+      console.error('❌ Error generating journal entries:', error);
+      return [];
+    }
   }
 }

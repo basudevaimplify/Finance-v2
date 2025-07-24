@@ -1,0 +1,11 @@
+Date,Description,Reference,Debit Amount,Credit Amount,Balance
+2025-01-01,Opening Balance,OB001,,50000.00,50000.00
+2025-01-02,Office Rent Payment,CHQ001,15000.00,,35000.00
+2025-01-03,Client Payment Received,DEP001,,25000.00,60000.00
+2025-01-04,Utility Bills,CHQ002,2500.00,,57500.00
+2025-01-05,Software License,CHQ003,5000.00,,52500.00
+2025-01-06,Consulting Revenue,DEP002,,30000.00,82500.00
+2025-01-07,Office Supplies,CHQ004,1200.00,,81300.00
+2025-01-08,Bank Charges,AUTO001,150.00,,81150.00
+2025-01-09,Client Payment,DEP003,,18000.00,99150.00
+2025-01-10,Marketing Expenses,CHQ005,3500.00,,95650.00

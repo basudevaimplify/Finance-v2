@@ -18,6 +18,7 @@ import { complianceCheckerService } from "./services/complianceChecker";
 import { financialReportsService } from "./services/financialReports";
 import { dataSourceService } from "./services/dataSourceService";
 import { contentBasedClassifier } from "./services/contentBasedClassifier";
+import { aiServiceIntegration } from "./services/aiServiceIntegration";
 import { AnthropicService } from "./services/anthropic";
 import { dataExtractorService } from "./services/dataExtractor";
 import { insertDocumentSchema } from "@shared/schema";
@@ -241,12 +242,32 @@ function generateSampleDataForDocument(docType: string, fileName: string) {
   return (baseData as any)[docType] || {};
 }
 
-// Configure multer for file uploads
+// Configure multer for file uploads with enhanced format support
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 100 * 1024 * 1024, // 100MB
   },
+  fileFilter: (req, file, cb) => {
+    // Enhanced file type validation
+    const allowedMimeTypes = [
+      'text/csv',
+      'application/csv',
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel', // .xls
+      'application/octet-stream' // Fallback for unclear MIME types
+    ];
+
+    const allowedExtensions = ['.csv', '.pdf', '.xlsx', '.xls'];
+    const fileExtension = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
+
+    if (allowedMimeTypes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported file format. Please upload PDF, Excel (.xlsx/.xls), or CSV files. Received: ${file.mimetype} (${fileExtension})`));
+    }
+  }
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -582,8 +603,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Document upload route
   app.post('/api/documents/upload', noAuth, upload.single('file'), async (req: any, res) => {
+    const startTime = Date.now();
+
     try {
-      console.log("Upload request received");
+      console.log("📤 Upload request received");
       
       if (!req.file) {
         console.log("No file in request");
@@ -617,13 +640,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tenantId
       });
 
-      // Simple extension validation only
+      // Enhanced file format validation
       const allowedExtensions = ['.xlsx', '.xls', '.csv', '.pdf'];
+      const allowedMimeTypes = [
+        'text/csv',
+        'application/csv',
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'application/octet-stream'
+      ];
+
       const fileExtension = path.extname(file.originalname).toLowerCase();
-      
-      if (!allowedExtensions.includes(fileExtension)) {
-        return res.status(400).json({ message: `File type ${fileExtension} not supported` });
+
+      if (!allowedExtensions.includes(fileExtension) && !allowedMimeTypes.includes(file.mimetype)) {
+        return res.status(400).json({
+          message: `Unsupported file format. Please upload PDF, Excel (.xlsx/.xls), or CSV files. Received: ${file.mimetype} (${fileExtension})`
+        });
       }
+
+      console.log(`📄 Processing ${fileExtension} file (${file.mimetype})`);
 
       // Save file directly without complex validation
       console.log("Saving file directly");
@@ -675,7 +711,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           classificationType: processingResult.classification.documentType,
           classificationConfidence: processingResult.classification.confidence,
           extractedRecords: processingResult.extraction.totalRecords,
-          extractionConfidence: processingResult.extraction.confidence
+          extractionConfidence: processingResult.extraction.confidence,
+          journalEntriesGenerated: processingResult.journalEntriesGenerated || 0,
+          aiEnhanced: processingResult.aiEnhanced || false
         });
         
       } catch (agentError) {
@@ -714,10 +752,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get updated document after agent processing
       const updatedDocument = await storage.getDocument(document.id);
       
+      // Get final processing result for response
+      let processingResult = null;
+      try {
+        const finalDocument = await storage.getDocument(document.id);
+        const metadata = finalDocument?.metadata as any;
+        const extractedData = finalDocument?.extractedData as any;
+
+        processingResult = {
+          documentType: finalDocument?.documentType || 'other',
+          classificationConfidence: metadata?.contentAnalysis?.confidence || 0,
+          extractedRecords: extractedData?.totalRecords || 0,
+          extractionConfidence: extractedData?.confidence || 0,
+          aiEnhanced: extractedData?.aiEnhanced || false,
+          journalEntriesGenerated: 0 // Will be updated if journal entries were created
+        };
+      } catch (error) {
+        console.error('Error getting final processing result:', error);
+      }
+
       res.json({
         document: updatedDocument,
         workflowId: workflowId || 'none',
-        message: "Document uploaded and processed by agent pipeline",
+        message: "Document uploaded and processed successfully",
+        processing: {
+          status: "completed",
+          method: processingResult?.aiEnhanced ? "ai_enhanced" : "agent_pipeline",
+          result: processingResult,
+          timestamp: new Date().toISOString(),
+          processingTimeMs: Date.now() - startTime
+        },
+        // Legacy compatibility
         agentProcessing: {
           status: "completed",
           method: 'agent_pipeline'
@@ -844,13 +909,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Continue even if file deletion fails
       }
 
-      // Log audit trail
+      // Log audit trail using the document's tenant ID
       await storage.createAuditTrail({
         action: 'document_deleted',
         entityType: 'document',
         entityId: documentId,
         userId,
-        tenantId: '550e8400-e29b-41d4-a716-446655440000', // Demo tenant ID
+        tenantId: document.tenantId, // Use the document's actual tenant ID
         details: { fileName: document.originalName }
       });
 
@@ -975,14 +1040,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.claims.sub;
-      
+
+      // Get journal entry to access tenant ID before deletion
+      const journalEntry = await storage.getJournalEntry(id);
+      if (!journalEntry) {
+        return res.status(404).json({ message: "Journal entry not found" });
+      }
+
       await storage.deleteJournalEntry(id);
-      
-      // Create audit trail
+
+      // Create audit trail with proper tenant ID
       await storage.createAuditTrail({
+        tenantId: journalEntry.tenantId,
+        action: 'delete',
         entityType: 'journal_entry',
         entityId: id,
-        action: 'delete',
         userId,
         details: { deletedBy: userId }
       });
