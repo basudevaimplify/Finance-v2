@@ -304,7 +304,7 @@ export class AgentOrchestrator {
   async getProcessingStatus(documentId: string): Promise<{
     status: string;
     classification?: ClassificationResult;
-    extraction?: ExtractionResult;
+    extraction?: AgentExtractionResult | null;
     lastProcessed?: string;
   }> {
     const document = await storage.getDocument(documentId);
@@ -356,7 +356,7 @@ export class AgentOrchestrator {
           return {
             documentId,
             classification: {} as ClassificationResult,
-            extraction: {} as ExtractionResult,
+            extraction: {} as AgentExtractionResult,
             databaseRecords: [],
             processingStatus: 'failed' as const,
             processingTime: 0,
