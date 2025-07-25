@@ -183,6 +183,27 @@ export const financialStatements = pgTable("financial_statements", {
   generatedAt: timestamp("generated_at").defaultNow(),
 });
 
+// Bank statement data table for extracted transaction records
+export const bankStatementData = pgTable("bank_statement_data", {
+  id: serial("id").primaryKey(),
+  documentId: uuid("document_id").references(() => documents.id, { onDelete: "cascade" }).notNull(),
+  transactionDate: timestamp("transaction_date").notNull(),
+  description: text("description").notNull(),
+  reference: varchar("reference", { length: 100 }),
+  debitAmount: decimal("debit_amount", { precision: 15, scale: 2 }),
+  creditAmount: decimal("credit_amount", { precision: 15, scale: 2 }),
+  balance: decimal("balance", { precision: 15, scale: 2 }),
+  confidence: decimal("confidence", { precision: 3, scale: 2 }).default("0.85"),
+  source: varchar("source", { length: 50 }).default("universal_pdf_extraction"),
+  rowIndex: integer("row_index"),
+  tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_bank_stmt_doc_id").on(table.documentId),
+  index("idx_bank_stmt_date").on(table.transactionDate),
+  index("idx_bank_stmt_tenant").on(table.tenantId),
+]);
+
 // Compliance checks table
 export const complianceChecks = pgTable("compliance_checks", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -312,6 +333,7 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   auditTrail: many(auditTrail),
   reconciliationReports: many(reconciliationReports),
   dataSources: many(dataSources),
+  bankStatementData: many(bankStatementData),
 }));
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -340,6 +362,7 @@ export const documentsRelations = relations(documents, ({ one, many }) => ({
   agentJobs: many(agentJobs),
   journalEntries: many(journalEntries),
   complianceChecks: many(complianceChecks),
+  bankStatementData: many(bankStatementData),
 }));
 
 export const agentJobsRelations = relations(agentJobs, ({ one }) => ({
@@ -505,3 +528,19 @@ export type InsertReconciliationReport = typeof reconciliationReports.$inferInse
 export type InsertDataSource = z.infer<typeof insertDataSourceSchema>;
 export type DataSource = typeof dataSources.$inferSelect;
 export type UpsertDataSource = typeof dataSources.$inferInsert;
+
+// Bank statement data relations
+export const bankStatementDataRelations = relations(bankStatementData, ({ one }) => ({
+  document: one(documents, {
+    fields: [bankStatementData.documentId],
+    references: [documents.id],
+  }),
+  tenant: one(tenants, {
+    fields: [bankStatementData.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+// Bank statement data types
+export type BankStatementData = typeof bankStatementData.$inferSelect;
+export type InsertBankStatementData = typeof bankStatementData.$inferInsert;

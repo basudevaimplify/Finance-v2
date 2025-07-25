@@ -206,8 +206,8 @@ class AIServiceIntegration {
    * Enhanced document processing with AI fallback
    */
   async processDocument(
-    filePath: string, 
-    originalName: string, 
+    filePath: string,
+    originalName: string,
     mimeType: string,
     fallbackProcessor?: (filePath: string) => Promise<any>
   ): Promise<{
@@ -217,6 +217,7 @@ class AIServiceIntegration {
     extractionConfidence: number;
     extractedData: any[];
     aiEnhanced: boolean;
+    rawTextContent?: string;
   }> {
     // Try AI service first
     const aiResult = await this.extractDocumentData(filePath, originalName, mimeType);
@@ -225,7 +226,8 @@ class AIServiceIntegration {
       const legacyFormat = this.convertToLegacyFormat(aiResult);
       return {
         ...legacyFormat,
-        aiEnhanced: true
+        aiEnhanced: true,
+        rawTextContent: aiResult.raw_text_content
       };
     }
 

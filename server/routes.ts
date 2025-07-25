@@ -28,6 +28,7 @@ import path from "path";
 import { spawn } from "child_process";
 import bcrypt from "bcrypt";
 import { AgentOrchestrator } from "./agents/AgentOrchestrator";
+import { BankStatementDataService } from './services/bankStatementDataService';
 import { agentRoutes } from "./routes/agentRoutes";
 
 // Helper function to format currency numbers as text
@@ -678,17 +679,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         uploadedBy: userId,
         status: 'uploaded' as const, // Start with uploaded status
         documentType: 'other' as const, // Use 'other' as default until classification
-        metadata: { 
-          size: file.size, 
+        metadata: {
+          size: file.size,
           mimeType: file.mimetype,
           period: 'Q1_2025' // Default period for demo
         },
         extractedData: null,
         tenantId,
       };
-      
+
       console.log("Document data to be inserted:", JSON.stringify(documentData, null, 2));
-      
+
       const document = await storage.createDocument(documentData);
       console.log("Document created with ID:", document.id, "Status:", document.status);
 
@@ -715,6 +716,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
           journalEntriesGenerated: processingResult.journalEntriesGenerated || 0,
           aiEnhanced: processingResult.aiEnhanced || false
         });
+
+        // Log complete extracted content and data
+        console.log("\n" + "=".repeat(80));
+        console.log("📄 COMPLETE DOCUMENT EXTRACTION RESULTS");
+        console.log("=".repeat(80));
+
+        // Log raw text content if available
+        if (processingResult.rawTextContent) {
+          console.log("\n📄 RAW EXTRACTED TEXT:");
+          console.log("-".repeat(50));
+          console.log(processingResult.rawTextContent);
+          console.log("-".repeat(50));
+          console.log(`Text Length: ${processingResult.rawTextContent.length} characters\n`);
+        }
+
+        // Log detailed extracted data
+        if (processingResult.extraction && processingResult.extraction.records) {
+          console.log("📊 STRUCTURED DATA EXTRACTION:");
+          console.log("-".repeat(50));
+          console.log("📋 EXTRACTION SUMMARY:");
+          console.log(`   • Document Type: ${processingResult.classification.documentType}`);
+          console.log(`   • Classification Confidence: ${processingResult.classification.confidence}`);
+          console.log(`   • Total Records Extracted: ${processingResult.extraction.totalRecords}`);
+          console.log(`   • Extraction Confidence: ${processingResult.extraction.confidence}`);
+          console.log(`   • Extraction Method: ${processingResult.extraction.extractionMethod}`);
+          console.log(`   • AI Enhanced: ${processingResult.aiEnhanced}`);
+
+          console.log("\n📝 DETECTED HEADERS/COLUMNS:");
+          if (processingResult.extraction.headers && processingResult.extraction.headers.length > 0) {
+            processingResult.extraction.headers.forEach((header, index) => {
+              console.log(`   ${index + 1}. ${header}`);
+            });
+          } else {
+            console.log("   No headers detected");
+          }
+
+          console.log("\n📊 COMPLETE EXTRACTED RECORDS:");
+          console.log(`   Showing all ${processingResult.extraction.totalRecords} records:\n`);
+
+          // Log ALL records, not just samples
+          processingResult.extraction.records.forEach((record, index) => {
+            console.log(`   📄 RECORD ${index + 1}:`);
+            console.log("   " + "-".repeat(40));
+
+            // Display each field in the record
+            Object.entries(record).forEach(([key, value]) => {
+              const displayValue = value === null ? 'null' :
+                                 value === undefined ? 'undefined' :
+                                 typeof value === 'string' ? `"${value}"` :
+                                 JSON.stringify(value);
+              console.log(`   ${key}: ${displayValue}`);
+            });
+            console.log(""); // Empty line between records
+          });
+
+          // Log metadata if available
+          if (processingResult.extraction.metadata) {
+            console.log("🔍 EXTRACTION METADATA:");
+            console.log(JSON.stringify(processingResult.extraction.metadata, null, 2));
+          }
+
+        } else {
+          console.log("📊 STRUCTURED DATA EXTRACTION:");
+          console.log("-".repeat(50));
+          console.log("❌ No structured data was extracted from this document");
+          console.log(`   • Document Type: ${processingResult.classification?.documentType || 'Unknown'}`);
+          console.log(`   • Classification Confidence: ${processingResult.classification?.confidence || 'N/A'}`);
+          console.log(`   • Extraction Confidence: ${processingResult.extraction?.confidence || 'N/A'}`);
+        }
+
+        console.log("\n" + "=".repeat(80));
+        console.log("📄 END OF DOCUMENT EXTRACTION RESULTS");
+        console.log("=".repeat(80) + "\n");
         
       } catch (agentError) {
         console.error("Agent processing failed:", agentError);
@@ -751,7 +825,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get updated document after agent processing
       const updatedDocument = await storage.getDocument(document.id);
-      
+
+      console.log("📋 FINAL DOCUMENT STATE IN DATABASE:");
+      console.log("Document ID:", updatedDocument?.id);
+      console.log("Status:", updatedDocument?.status);
+      console.log("Document Type:", updatedDocument?.documentType);
+      console.log("File Path:", updatedDocument?.filePath);
+      console.log("Metadata:", JSON.stringify(updatedDocument?.metadata, null, 2));
+
+      if (updatedDocument?.extractedData) {
+        const extractedData = updatedDocument.extractedData as any;
+        console.log("📊 STORED EXTRACTED DATA:");
+        console.log("Total Records:", extractedData.totalRecords);
+        console.log("Headers:", extractedData.headers);
+        console.log("Confidence:", extractedData.confidence);
+        console.log("AI Enhanced:", extractedData.aiEnhanced);
+        console.log("Extraction Method:", extractedData.extractionMethod);
+
+        if (extractedData.records && extractedData.records.length > 0) {
+          console.log("First stored record:", JSON.stringify(extractedData.records[0], null, 2));
+        }
+      } else {
+        console.log("⚠️ No extracted data found in database");
+      }
+
       // Get final processing result for response
       let processingResult = null;
       try {
@@ -3824,9 +3921,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Agent Pipeline Routes
   app.use('/api/agents', agentRoutes);
 
+  // Test route to verify route registration
+  app.get('/api/data-tables/test', noAuth, (req: any, res) => {
+    res.json({ message: 'Route registration working!', timestamp: new Date().toISOString() });
+  });
+
+  // Bank statement data routes
+  app.get('/api/data-tables/bank-statement', noAuth, async (req: any, res) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const tenantId = '66a2a729-dfeb-4a96-b0bb-d65b91aeabb8'; // Default tenant ID
+
+      console.log(`📊 Fetching bank statement data - Page: ${page}, Limit: ${limit}, Tenant: ${tenantId}`);
+
+      const result = await BankStatementDataService.getPaginatedRecords(tenantId, page, limit);
+
+      console.log(`✅ Retrieved ${result.records.length} bank statement records from database`);
+
+      res.json({
+        success: true,
+        data: result.records,
+        pagination: result.pagination,
+        message: `Retrieved ${result.records.length} bank statement records`
+      });
+
+    } catch (error) {
+      console.error('❌ Failed to fetch bank statement data:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch bank statement data',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
+
   // 404 handler for API routes (must be after all other API routes)
   app.use('/api/*', (req, res) => {
-    res.status(404).json({ 
+    res.status(404).json({
       message: 'API endpoint not found',
       path: req.originalUrl,
       method: req.method
@@ -4050,3 +4182,5 @@ async function generateBalanceSheet(journalEntries: any[]): Promise<any> {
     isBalanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.01
   };
 }
+
+

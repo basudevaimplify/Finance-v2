@@ -50,6 +50,16 @@ SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
 # Global database connection pool
 db_pool = None
 
+# Utility Functions
+def _to_camel_case(s: str) -> str:
+    """Convert snake_case string to camelCase."""
+    parts = s.split('_')
+    return parts[0] + ''.join(p.capitalize() for p in parts[1:])
+
+def record_to_camel(record: Any) -> Dict[str, Any]:
+    """Convert an asyncpg Record to a camelCase keyed dict."""
+    return {_to_camel_case(k): v for k, v in dict(record).items()}
+
 # Database Models
 class User(BaseModel):
     id: str
@@ -140,14 +150,7 @@ def generate_token(user_id: str) -> str:
     """Generate simple token (in production, use JWT)"""
     return hashlib.sha256(f"{user_id}{SECRET_KEY}".encode()).hexdigest()
 
-def _to_camel_case(s: str) -> str:
-    """Convert snake_case string to camelCase."""
-    parts = s.split('_')
-    return parts[0] + ''.join(p.capitalize() for p in parts[1:])
 
-def record_to_camel(record: Any) -> Dict[str, Any]:
-    """Convert an asyncpg Record to a camelCase keyed dict."""
-    return {_to_camel_case(k): v for k, v in dict(record).items()}
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db = Depends(get_db)) -> User:
     """Get current authenticated user"""
@@ -231,6 +234,7 @@ class DocumentProcessingResponse(BaseModel):
     extraction: ExtractionResult
     processing_time_ms: int
     ai_enhanced: bool = Field(default=False)
+    raw_text_content: str = Field(default="")
 
 # Document type classification prompts
 CLASSIFICATION_PROMPTS = {
@@ -559,7 +563,10 @@ def fallback_classification(content: str, filename: str, file_type: str) -> Clas
 
 async def extract_data_with_ai(content: str, doc_type: str) -> ExtractionResult:
     """Extract structured data using AI or fallback methods"""
+    logger.info(f"🔍 Starting data extraction for document type: {doc_type}")
+
     if doc_type not in EXTRACTION_PROMPTS:
+        logger.warning(f"❌ Unsupported document type: {doc_type}")
         return ExtractionResult(
             records=[],
             total_records=0,
@@ -567,27 +574,34 @@ async def extract_data_with_ai(content: str, doc_type: str) -> ExtractionResult:
             schema_detected={},
             processing_notes=["Unsupported document type for extraction"]
         )
-    
+
+    logger.info(f"📊 Content length: {len(content)} characters")
+
     # Try CSV parsing first for structured data
     try:
+        logger.info("📋 Attempting CSV parsing...")
         # Parse as CSV
         df = pd.read_csv(StringIO(content))
-        
+        logger.info(f"✅ CSV parsed successfully: {len(df)} rows, {len(df.columns)} columns")
+        logger.info(f"📝 Columns detected: {list(df.columns)}")
+
         if len(df) > 0:
             records = []
             schema_info = EXTRACTION_PROMPTS[doc_type]["schema"]
-            
+            logger.info(f"🔧 Processing {len(df)} rows...")
+
             for idx, row in df.iterrows():
                 record_data = {}
                 for col in df.columns:
                     record_data[col] = row[col] if pd.notna(row[col]) else None
-                
+
                 records.append(ExtractedRecord(
                     row_index=idx,
                     data=record_data,
                     confidence=0.95
                 ))
-            
+
+            logger.info(f"✅ Successfully extracted {len(records)} records from CSV")
             return ExtractionResult(
                 records=records,
                 total_records=len(records),
@@ -595,14 +609,16 @@ async def extract_data_with_ai(content: str, doc_type: str) -> ExtractionResult:
                 schema_detected={col: str(df[col].dtype) for col in df.columns},
                 processing_notes=["Successfully parsed as CSV format"]
             )
-            
+
     except Exception as e:
-        logger.info(f"CSV parsing failed, trying alternative extraction: {e}")
-    
+        logger.info(f"⚠️ CSV parsing failed, trying alternative extraction: {e}")
+
     # Fallback to basic text parsing
+    logger.info("🔧 Falling back to basic text parsing...")
     lines = content.strip().split('\n')
     records = []
-    
+    logger.info(f"📄 Processing {len(lines)} lines...")
+
     for idx, line in enumerate(lines[1:], 1):  # Skip header
         if line.strip():
             # Basic comma-separated parsing
@@ -614,6 +630,8 @@ async def extract_data_with_ai(content: str, doc_type: str) -> ExtractionResult:
                     data=record_data,
                     confidence=0.7
                 ))
+
+    logger.info(f"✅ Basic parsing completed: {len(records)} records extracted")
     
     return ExtractionResult(
         records=records,
@@ -623,54 +641,928 @@ async def extract_data_with_ai(content: str, doc_type: str) -> ExtractionResult:
         processing_notes=["Used fallback text parsing"]
     )
 
-async def process_bank_statement_pdf(content: bytes, filename: str) -> ExtractionResult:
-    """Process bank statement PDF with transaction extraction"""
-    try:
-        text = await extract_text_from_pdf(content)
+# async def process_bank_statement_pdf(content: bytes, filename: str) -> ExtractionResult:
+#     """Process bank statement PDF with enhanced transaction extraction"""
+#     try:
+#         text = await extract_text_from_pdf(content)
+#         logger.info(f"📄 PDF text extracted: {len(text)} characters")
 
-        # Bank statement specific patterns
-        transaction_patterns = [
-            r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(.+?)\s+(\d+\.?\d*)\s*([CD]?)\s+(\d+\.?\d*)',  # Date, Description, Amount, Type, Balance
-            r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(.+?)\s+(\d+,?\d*\.?\d*)\s+(\d+,?\d*\.?\d*)',  # Date, Description, Debit, Credit
+#         # Enhanced bank statement patterns for different formats
+#         transaction_patterns = [
+#             # Standard format: Date Description Reference Debit Credit Balance
+#             r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(.+?)\s+([A-Z0-9]+)\s+(\d+[,.]?\d*\.?\d*)\s+(\d+[,.]?\d*\.?\d*)',
+
+#             # Format with optional debit/credit: Date Description Amount Balance
+#             r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(.+?)\s+(\d+[,.]?\d*\.?\d*)\s+(\d+[,.]?\d*\.?\d*)',
+
+#             # Format with reference: Date Description Reference Amount
+#             r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(.+?)\s+([A-Z0-9]+)\s+(\d+[,.]?\d*\.?\d*)',
+
+#             # Simple format: Date Description Amount
+#             r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(.+?)\s+(\d+[,.]?\d*\.?\d*)',
+
+#             # Tab-separated format
+#             r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\t+(.+?)\t+(.+?)\t+(\d+[,.]?\d*\.?\d*)',
+#         ]
+
+#         records = []
+#         processed_lines = []
+
+#         # Process each line
+#         for line_num, line in enumerate(text.split('\n')):
+#             line = line.strip()
+#             if not line or len(line) < 10:  # Skip empty or very short lines
+#                 continue
+
+#             # Skip header lines
+#             if any(header in line.lower() for header in ['date', 'description', 'reference', 'debit', 'credit', 'balance', 'transaction', 'account']):
+#                 continue
+
+#             # Try each pattern
+#             for pattern_idx, pattern in enumerate(transaction_patterns):
+#                 match = re.search(pattern, line)
+#                 if match:
+#                     groups = match.groups()
+#                     logger.info(f"🔍 Pattern {pattern_idx} matched line {line_num}: {groups}")
+
+#                     # Extract data based on number of groups and analyze the line structure
+#                     if len(groups) >= 3:
+#                         # Analyze the line to determine the structure
+#                         # Look for keywords to determine if it's debit or credit
+#                         line_lower = line.lower()
+#                         is_credit = any(keyword in line_lower for keyword in ['payment received', 'deposit', 'revenue', 'income', 'credit', 'retainer'])
+#                         is_debit = any(keyword in line_lower for keyword in ['payment', 'expense', 'charges', 'purchase', 'bills', 'premium']) and not is_credit
+
+#                         if len(groups) >= 5:  # Date, Description, Reference, Amount1, Amount2 (could be Debit/Credit or Amount/Balance)
+#                             # Check if we have separate debit/credit columns or amount/balance
+#                             amount1 = groups[3].replace(',', '')
+#                             amount2 = groups[4].replace(',', '')
+
+#                             # If both amounts exist, likely Amount and Balance format
+#                             if amount1 and amount2:
+#                                 record_data = {
+#                                     'Date': groups[0],
+#                                     'Description': groups[1].strip(),
+#                                     'Reference': groups[2],
+#                                     'Debit Amount': amount1 if is_debit else None,
+#                                     'Credit Amount': amount1 if is_credit else None,
+#                                     'Balance': amount2
+#                                 }
+#                             else:
+#                                 # One is debit, one is credit
+#                                 record_data = {
+#                                     'Date': groups[0],
+#                                     'Description': groups[1].strip(),
+#                                     'Reference': groups[2],
+#                                     'Debit Amount': amount1 if amount1 and amount1 != '0' else None,
+#                                     'Credit Amount': amount2 if amount2 and amount2 != '0' else None,
+#                                     'Balance': None
+#                                 }
+#                         elif len(groups) == 4:  # Date, Description, Reference, Amount OR Date, Description, Amount, Balance
+#                             # Check if third group looks like a reference (letters/numbers) or amount (only numbers)
+#                             if re.match(r'^[A-Z0-9]+$', groups[2]):  # Has reference
+#                                 amount = groups[3].replace(',', '')
+#                                 record_data = {
+#                                     'Date': groups[0],
+#                                     'Description': groups[1].strip(),
+#                                     'Reference': groups[2],
+#                                     'Debit Amount': amount if is_debit else None,
+#                                     'Credit Amount': amount if is_credit else None,
+#                                     'Balance': None
+#                                 }
+#                             else:  # Amount, Balance format
+#                                 amount = groups[2].replace(',', '')
+#                                 balance = groups[3].replace(',', '')
+#                                 record_data = {
+#                                     'Date': groups[0],
+#                                     'Description': groups[1].strip(),
+#                                     'Reference': None,
+#                                     'Debit Amount': amount if is_debit else None,
+#                                     'Credit Amount': amount if is_credit else None,
+#                                     'Balance': balance
+#                                 }
+#                         else:  # Date, Description, Amount
+#                             amount = groups[2].replace(',', '')
+#                             record_data = {
+#                                 'Date': groups[0],
+#                                 'Description': groups[1].strip(),
+#                                 'Reference': None,
+#                                 'Debit Amount': amount if is_debit else None,
+#                                 'Credit Amount': amount if is_credit else None,
+#                                 'Balance': None
+#                             }
+
+#                         # Add confidence and source
+#                         record_data['confidence'] = 0.85
+#                         record_data['source'] = 'pdf_extraction'
+#                         record_data['id'] = f"pdf-record-{len(records)}"
+
+#                         records.append(ExtractedRecord(
+#                             row_index=len(records),
+#                             data=record_data,
+#                             confidence=0.85
+#                         ))
+
+#                         processed_lines.append(f"Line {line_num}: {line}")
+#                         break  # Stop trying other patterns for this line
+
+#         logger.info(f"📊 PDF processing completed: {len(records)} records extracted from {len(processed_lines)} lines")
+
+#         return ExtractionResult(
+#             records=records,
+#             total_records=len(records),
+#             extraction_confidence=0.85 if records else 0.3,
+#             schema_detected={'format': 'bank_statement_pdf', 'patterns_used': str(len(transaction_patterns))},
+#             processing_notes=[f"Extracted {len(records)} transactions from PDF using enhanced patterns"]
+#         )
+
+#     except Exception as e:
+#         logger.error(f"Bank statement PDF processing failed: {e}")
+#         return ExtractionResult(
+#             records=[],
+#             total_records=0,
+#             extraction_confidence=0.0,
+#             schema_detected={},
+#             processing_notes=[f"PDF processing failed: {str(e)}"]
+#         )
+# ============================================================================
+# UNIVERSAL AI-POWERED PDF FINANCIAL DOCUMENT PROCESSOR
+# ============================================================================
+
+from dataclasses import dataclass
+from typing import List, Dict, Any, Optional, Tuple, Union
+from enum import Enum
+import re
+from datetime import datetime
+
+class FieldType(Enum):
+    """Semantic field types for financial documents"""
+    DATE = "date"
+    DESCRIPTION = "description"
+    REFERENCE = "reference"
+    AMOUNT = "amount"
+    DEBIT = "debit"
+    CREDIT = "credit"
+    BALANCE = "balance"
+    ACCOUNT = "account"
+    INVOICE_NUMBER = "invoice_number"
+    CUSTOMER = "customer"
+    VENDOR = "vendor"
+    TAX = "tax"
+    UNKNOWN = "unknown"
+
+@dataclass
+class TableRegion:
+    """Represents a detected table region in the document"""
+    start_line: int
+    end_line: int
+    lines: List[str]
+    confidence: float
+    table_type: str  # 'structured', 'semi_structured', 'key_value'
+
+@dataclass
+class ColumnStructure:
+    """Represents detected column structure"""
+    positions: List[int]
+    headers: List[str]
+    alignment: str  # 'fixed_width', 'tab_separated', 'space_separated'
+    confidence: float
+
+@dataclass
+class FieldMapping:
+    """Maps detected fields to standard schema"""
+    original_name: str
+    field_type: FieldType
+    standard_name: str
+    confidence: float
+    sample_values: List[str]
+
+class PDFIntelligenceEngine:
+    """Core intelligence engine for PDF document analysis"""
+
+    def __init__(self):
+        self.date_patterns = [
+            r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',
+            r'\d{4}[/-]\d{1,2}[/-]\d{1,2}',
+            r'\d{1,2}\s+[A-Za-z]{3}\s+\d{4}',
+            r'[A-Za-z]{3}\s+\d{1,2},?\s+\d{4}',
         ]
 
-        records = []
-        for line in text.split('\n'):
-            for pattern in transaction_patterns:
-                match = re.search(pattern, line)
-                if match:
-                    groups = match.groups()
-                    if len(groups) >= 4:
-                        record_data = {
-                            'transaction_date': groups[0],
-                            'description': groups[1].strip(),
-                            'amount': groups[2],
-                            'balance': groups[-1] if len(groups) > 4 else None
-                        }
+        self.amount_patterns = [
+            r'₹\s*[\d,]+\.?\d*',
+            r'\$\s*[\d,]+\.?\d*',
+            r'€\s*[\d,]+\.?\d*',
+            r'Rs\.?\s*[\d,]+\.?\d*',
+            r'[\d,]+\.?\d*',
+            r'\([\d,]+\.?\d*\)',  # Negative amounts in parentheses
+        ]
 
-                        records.append(ExtractedRecord(
-                            row_index=len(records),
-                            data=record_data,
-                            confidence=0.85
-                        ))
+        self.reference_patterns = [
+            r'[A-Z]{2,4}\d{3,}',
+            r'INV[/-]?\d+',
+            r'CHQ\d+',
+            r'TXN\d+',
+            r'AUTO\d+',
+            r'DEP\d+',
+            r'[A-Z]+\d+',
+        ]
 
-        return ExtractionResult(
-            records=records,
-            total_records=len(records),
-            extraction_confidence=0.85 if records else 0.3,
-            schema_detected={'format': 'bank_statement_pdf'},
-            processing_notes=[f"Extracted {len(records)} transactions from PDF"]
-        )
+    def classify_document_type(self, text: str) -> Tuple[str, float]:
+        """Classify document type based on content analysis"""
+        text_lower = text.lower()
+
+        # Bank statement indicators
+        bank_indicators = ['bank', 'statement', 'account', 'balance', 'transaction', 'debit', 'credit']
+        bank_score = sum(1 for indicator in bank_indicators if indicator in text_lower)
+
+        # Invoice indicators
+        invoice_indicators = ['invoice', 'bill', 'amount due', 'payment terms', 'invoice number']
+        invoice_score = sum(1 for indicator in invoice_indicators if indicator in text_lower)
+
+        # Sales register indicators
+        sales_indicators = ['sales', 'customer', 'invoice', 'gst', 'tax', 'total amount']
+        sales_score = sum(1 for indicator in sales_indicators if indicator in text_lower)
+
+        # Purchase register indicators
+        purchase_indicators = ['purchase', 'vendor', 'supplier', 'bill', 'gst', 'tax']
+        purchase_score = sum(1 for indicator in purchase_indicators if indicator in text_lower)
+
+        scores = {
+            'bank_statement': bank_score,
+            'invoice': invoice_score,
+            'sales_register': sales_score,
+            'purchase_register': purchase_score
+        }
+
+        doc_type = max(scores, key=scores.get)
+        confidence = min(scores[doc_type] / 10.0, 1.0)  # Normalize to 0-1
+
+        return doc_type, confidence
+
+    def detect_field_type(self, header: str, sample_values: List[str]) -> FieldType:
+        """Detect field type based on header name and sample values"""
+        header_lower = header.lower().strip()
+
+        # Date field detection
+        if any(keyword in header_lower for keyword in ['date', 'dt', 'time']):
+            return FieldType.DATE
+
+        # Amount field detection
+        if any(keyword in header_lower for keyword in ['amount', 'amt', 'value', 'total']):
+            return FieldType.AMOUNT
+
+        # Debit field detection
+        if any(keyword in header_lower for keyword in ['debit', 'dr', 'withdrawal', 'expense']):
+            return FieldType.DEBIT
+
+        # Credit field detection
+        if any(keyword in header_lower for keyword in ['credit', 'cr', 'deposit', 'income']):
+            return FieldType.CREDIT
+
+        # Balance field detection
+        if any(keyword in header_lower for keyword in ['balance', 'bal', 'closing']):
+            return FieldType.BALANCE
+
+        # Reference field detection
+        if any(keyword in header_lower for keyword in ['reference', 'ref', 'cheque', 'chq', 'txn']):
+            return FieldType.REFERENCE
+
+        # Description field detection
+        if any(keyword in header_lower for keyword in ['description', 'desc', 'particulars', 'narration']):
+            return FieldType.DESCRIPTION
+
+        # Customer/Vendor detection
+        if any(keyword in header_lower for keyword in ['customer', 'client', 'party']):
+            return FieldType.CUSTOMER
+        if any(keyword in header_lower for keyword in ['vendor', 'supplier']):
+            return FieldType.VENDOR
+
+        # Invoice number detection
+        if any(keyword in header_lower for keyword in ['invoice', 'bill', 'voucher']):
+            return FieldType.INVOICE_NUMBER
+
+        # Analyze sample values for pattern detection
+        if sample_values:
+            # Check if values look like dates
+            date_count = sum(1 for val in sample_values[:5] if re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', str(val)))
+            if date_count > len(sample_values) * 0.6:
+                return FieldType.DATE
+
+            # Check if values look like amounts
+            amount_count = sum(1 for val in sample_values[:5] if re.search(r'[\d,]+\.?\d*', str(val)))
+            if amount_count > len(sample_values) * 0.6:
+                return FieldType.AMOUNT
+
+        return FieldType.UNKNOWN
+
+async def process_pdf_document(content: bytes, filename: str) -> ExtractionResult:
+    """Universal PDF document processor - handles ANY financial document format"""
+    try:
+        # Initialize the intelligence engine
+        engine = PDFIntelligenceEngine()
+
+        # Extract text from PDF
+        text = await extract_text_from_pdf(content)
+        logger.info(f"📄 PDF text extracted: {len(text)} characters")
+
+        # Stage 1: Document type classification
+        doc_type, type_confidence = engine.classify_document_type(text)
+        logger.info(f"🔍 Document classified as: {doc_type} (confidence: {type_confidence:.2f})")
+
+        # Stage 2: Table structure detection
+        detector = TableStructureDetector()
+        table_regions = detector.detect_table_boundaries(text)
+        logger.info(f"📊 Detected {len(table_regions)} table regions")
+
+        if not table_regions:
+            logger.warning("⚠️ No table regions detected, falling back to line-by-line processing")
+            return await _fallback_line_processing(text, engine)
+
+        # Process the best table region
+        best_table = max(table_regions, key=lambda t: t.confidence)
+        logger.info(f"🎯 Processing best table region (confidence: {best_table.confidence:.2f}, type: {best_table.table_type})")
+
+        # Stage 3: Dynamic header and column discovery
+        mapper = SemanticFieldMapper(engine)
+        field_mappings = await mapper.discover_fields(best_table.lines)
+        logger.info(f"🗂️ Discovered {len(field_mappings)} field mappings")
+
+        # Stage 4: Data extraction with the discovered structure
+        orchestrator = DataExtractionOrchestrator(engine, mapper)
+        extraction_result = await orchestrator.extract_data(best_table, field_mappings)
+
+        logger.info(f"✅ Universal PDF processing completed: {extraction_result.total_records} records extracted")
+        return extraction_result
 
     except Exception as e:
-        logger.error(f"Bank statement PDF processing failed: {e}")
+        logger.error(f"Universal PDF processing failed: {e}")
         return ExtractionResult(
             records=[],
             total_records=0,
             extraction_confidence=0.0,
             schema_detected={},
-            processing_notes=[f"PDF processing failed: {str(e)}"]
+            processing_notes=[f"Universal PDF processing failed: {str(e)}"]
         )
+
+class TableStructureDetector:
+    """Detects and analyzes table structures in PDF text"""
+
+    def __init__(self):
+        self.min_table_lines = 3
+        self.min_columns = 2
+
+    def detect_table_boundaries(self, text: str) -> List[TableRegion]:
+        """Detect table regions in the document"""
+        lines = text.split('\n')
+        table_regions = []
+        current_table_start = None
+        current_table_lines = []
+
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line:
+                if current_table_start is not None and len(current_table_lines) >= self.min_table_lines:
+                    # End of table region
+                    confidence = self._calculate_table_confidence(current_table_lines)
+                    table_type = self._determine_table_type(current_table_lines)
+
+                    table_regions.append(TableRegion(
+                        start_line=current_table_start,
+                        end_line=i-1,
+                        lines=current_table_lines.copy(),
+                        confidence=confidence,
+                        table_type=table_type
+                    ))
+
+                current_table_start = None
+                current_table_lines = []
+                continue
+
+            # Check if line looks like table data
+            if self._is_table_line(line):
+                if current_table_start is None:
+                    current_table_start = i
+                current_table_lines.append(line)
+            else:
+                # Check if this might be a header line
+                if current_table_start is None and self._is_header_line(line):
+                    current_table_start = i
+                    current_table_lines.append(line)
+                elif current_table_start is not None:
+                    # End current table if we have enough lines
+                    if len(current_table_lines) >= self.min_table_lines:
+                        confidence = self._calculate_table_confidence(current_table_lines)
+                        table_type = self._determine_table_type(current_table_lines)
+
+                        table_regions.append(TableRegion(
+                            start_line=current_table_start,
+                            end_line=i-1,
+                            lines=current_table_lines.copy(),
+                            confidence=confidence,
+                            table_type=table_type
+                        ))
+
+                    current_table_start = None
+                    current_table_lines = []
+
+        # Handle table at end of document
+        if current_table_start is not None and len(current_table_lines) >= self.min_table_lines:
+            confidence = self._calculate_table_confidence(current_table_lines)
+            table_type = self._determine_table_type(current_table_lines)
+
+            table_regions.append(TableRegion(
+                start_line=current_table_start,
+                end_line=len(lines)-1,
+                lines=current_table_lines,
+                confidence=confidence,
+                table_type=table_type
+            ))
+
+        return table_regions
+
+    def _is_table_line(self, line: str) -> bool:
+        """Check if a line appears to be table data"""
+        # Look for patterns indicating tabular data
+        has_date = bool(re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', line))
+        has_amount = bool(re.search(r'[\d,]+\.?\d*', line))
+        has_multiple_fields = len(line.split()) >= 3
+        has_tabs = '\t' in line
+
+        return (has_date and has_amount) or has_tabs or (has_multiple_fields and has_amount)
+
+    def _is_header_line(self, line: str) -> bool:
+        """Check if a line appears to be a table header"""
+        header_keywords = ['date', 'description', 'amount', 'debit', 'credit', 'balance',
+                          'reference', 'invoice', 'customer', 'vendor', 'tax']
+        line_lower = line.lower()
+        return sum(1 for keyword in header_keywords if keyword in line_lower) >= 2
+
+    def _calculate_table_confidence(self, lines: List[str]) -> float:
+        """Calculate confidence that these lines form a valid table"""
+        if not lines:
+            return 0.0
+
+        # Factors that increase confidence
+        date_lines = sum(1 for line in lines if re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', line))
+        amount_lines = sum(1 for line in lines if re.search(r'[\d,]+\.?\d*', line))
+        consistent_columns = self._check_column_consistency(lines)
+
+        date_ratio = date_lines / len(lines)
+        amount_ratio = amount_lines / len(lines)
+
+        confidence = (date_ratio * 0.4 + amount_ratio * 0.4 + consistent_columns * 0.2)
+        return min(confidence, 1.0)
+
+    def _determine_table_type(self, lines: List[str]) -> str:
+        """Determine the type of table structure"""
+        if not lines:
+            return 'unknown'
+
+        # Check for tab separation
+        tab_lines = sum(1 for line in lines if '\t' in line)
+        if tab_lines > len(lines) * 0.5:
+            return 'tab_separated'
+
+        # Check for fixed-width columns
+        if self._check_fixed_width_structure(lines):
+            return 'fixed_width'
+
+        # Check for space-separated
+        return 'space_separated'
+
+    def _check_column_consistency(self, lines: List[str]) -> float:
+        """Check how consistent the column structure is"""
+        if len(lines) < 2:
+            return 0.0
+
+        # Simple check: do most lines have similar number of fields?
+        field_counts = [len(line.split()) for line in lines]
+        if not field_counts:
+            return 0.0
+
+        most_common_count = max(set(field_counts), key=field_counts.count)
+        consistency = field_counts.count(most_common_count) / len(field_counts)
+        return consistency
+
+    def _check_fixed_width_structure(self, lines: List[str]) -> bool:
+        """Check if lines follow a fixed-width column structure"""
+        if len(lines) < 3:
+            return False
+
+        # Look for consistent spacing patterns
+        # This is a simplified check - could be enhanced
+        return False  # Placeholder for now
+
+class SemanticFieldMapper:
+    """Maps detected fields to standard financial document schema"""
+
+    def __init__(self, engine: PDFIntelligenceEngine):
+        self.engine = engine
+        self.standard_schema = {
+            'Date': FieldType.DATE,
+            'Description': FieldType.DESCRIPTION,
+            'Reference': FieldType.REFERENCE,
+            'Debit Amount': FieldType.DEBIT,
+            'Credit Amount': FieldType.CREDIT,
+            'Balance': FieldType.BALANCE,
+            'Customer': FieldType.CUSTOMER,
+            'Vendor': FieldType.VENDOR,
+            'Invoice Number': FieldType.INVOICE_NUMBER,
+            'Tax': FieldType.TAX
+        }
+
+    async def discover_fields(self, table_lines: List[str]) -> List[FieldMapping]:
+        """Discover and map fields from table headers and data"""
+        if not table_lines:
+            return []
+
+        # Find header line (usually first line or line with most keywords)
+        header_line = self._find_header_line(table_lines)
+        if not header_line:
+            return []
+
+        # Extract column headers
+        headers = self._extract_headers(header_line)
+        logger.info(f"🔍 Extracted headers: {headers}")
+
+        # Get sample data for each column
+        sample_data = self._extract_sample_data(table_lines, len(headers))
+
+        # Map each header to a field type
+        field_mappings = []
+        for i, header in enumerate(headers):
+            sample_values = sample_data[i] if i < len(sample_data) else []
+            field_type = self.engine.detect_field_type(header, sample_values)
+            standard_name = self._map_to_standard_name(field_type, header)
+
+            mapping = FieldMapping(
+                original_name=header,
+                field_type=field_type,
+                standard_name=standard_name,
+                confidence=0.8,  # Base confidence
+                sample_values=sample_values[:3]  # Keep first 3 samples
+            )
+            field_mappings.append(mapping)
+            logger.info(f"📋 Mapped '{header}' → '{standard_name}' ({field_type.value})")
+
+        return field_mappings
+
+    def _find_header_line(self, lines: List[str]) -> Optional[str]:
+        """Find the line that contains column headers"""
+        header_keywords = ['date', 'description', 'amount', 'debit', 'credit', 'balance',
+                          'reference', 'invoice', 'customer', 'vendor', 'tax']
+
+        best_line = None
+        best_score = 0
+
+        for line in lines[:5]:  # Check first 5 lines
+            line_lower = line.lower()
+            score = sum(1 for keyword in header_keywords if keyword in line_lower)
+            if score > best_score:
+                best_score = score
+                best_line = line
+
+        return best_line if best_score >= 2 else lines[0]  # Fallback to first line
+
+    def _extract_headers(self, header_line: str) -> List[str]:
+        """Extract column headers from header line"""
+        logger.info(f"🔍 Raw header line: '{header_line}'")
+
+        # Try different separators
+        if '\t' in header_line:
+            headers = header_line.split('\t')
+        elif '|' in header_line:
+            headers = header_line.split('|')
+        else:
+            # Space-separated, but be smart about it
+            headers = re.split(r'\s{2,}', header_line)  # Split on 2+ spaces
+            if len(headers) == 1:
+                headers = header_line.split()  # Fallback to single space
+
+        headers = [h.strip() for h in headers if h.strip()]
+        logger.info(f"🔍 Extracted headers: {headers}")
+        return headers
+
+    def _extract_sample_data(self, lines: List[str], num_columns: int) -> List[List[str]]:
+        """Extract sample data for each column"""
+        sample_data = [[] for _ in range(num_columns)]
+
+        for line in lines[1:6]:  # Skip header, take next 5 lines
+            if self._is_data_line(line):
+                columns = self._split_line_into_columns(line, num_columns)
+                for i, col_value in enumerate(columns):
+                    if i < len(sample_data) and col_value.strip():
+                        sample_data[i].append(col_value.strip())
+
+        return sample_data
+
+    def _is_data_line(self, line: str) -> bool:
+        """Check if line contains data (not header or separator)"""
+        line = line.strip()
+        if not line or len(line) < 5:
+            return False
+
+        # Check for date pattern (strong indicator of data line)
+        has_date = bool(re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', line))
+        has_amount = bool(re.search(r'[\d,]+\.?\d*', line))
+
+        return has_date or has_amount
+
+    def _split_line_into_columns(self, line: str, expected_columns: int) -> List[str]:
+        """Split line into columns intelligently"""
+        logger.debug(f"🔍 Splitting line: '{line}' (expecting {expected_columns} columns)")
+
+        if '\t' in line:
+            columns = line.split('\t')
+        elif '|' in line:
+            columns = line.split('|')
+        else:
+            # For bank statements, use a more sophisticated approach
+            # The PDF structure is: Date Description Reference [Debit|Credit] Balance
+            # Some lines have 4 columns (Date Desc Ref Balance), others have 5 (Date Desc Ref Amount Balance)
+
+            # First, try to split on multiple spaces to get natural columns
+            natural_columns = re.split(r'\s{2,}', line)
+            if len(natural_columns) < 2:
+                # Fallback to single space split
+                natural_columns = line.split()
+
+            logger.debug(f"🔍 Natural columns: {natural_columns}")
+
+            # Look for date pattern at start
+            date_match = re.match(r'^(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})', line)
+            if date_match and len(natural_columns) >= 4:
+                date_part = natural_columns[0]
+
+                # Find all numeric values (potential amounts)
+                amounts = []
+                amount_positions = []
+                for i, col in enumerate(natural_columns):
+                    if re.match(r'^[\d,]+\.?\d*$', col.replace(',', '')):
+                        amounts.append(col)
+                        amount_positions.append(i)
+
+                logger.debug(f"🔍 Found amounts: {amounts} at positions: {amount_positions}")
+
+                if len(amounts) == 1:
+                    # Only one amount - this is either opening balance or single transaction
+                    if len(natural_columns) == 4:
+                        # Format: Date Description Reference Balance
+                        columns = [natural_columns[0], natural_columns[1], natural_columns[2], "", "", natural_columns[3]]
+                    else:
+                        # Format: Date Description Reference Amount Balance - need to determine if Amount is debit or credit
+                        amount = amounts[0]
+                        balance = natural_columns[-1] if natural_columns[-1] != amount else ""
+
+                        # Get description to determine transaction type
+                        desc_parts = natural_columns[1:-2] if balance else natural_columns[1:-1]
+                        description = ' '.join(desc_parts[:-1]) if len(desc_parts) > 1 else ' '.join(desc_parts)
+                        reference = desc_parts[-1] if len(desc_parts) > 1 else ""
+
+                        # Determine if it's debit or credit based on reference pattern first, then description
+                        if reference.startswith('DEP'):
+                            # DEP = Deposit = Credit
+                            columns = [date_part, description, reference, "", amount, balance]
+                        elif reference.startswith('CHQ') or reference.startswith('AUTO'):
+                            # CHQ = Check, AUTO = Automatic charge = Debit
+                            columns = [date_part, description, reference, amount, "", balance]
+                        elif reference.startswith('OB'):
+                            # Opening Balance - no debit/credit, just balance
+                            columns = [date_part, description, reference, "", "", amount]
+                        else:
+                            # Fallback to description-based classification
+                            debit_keywords = ['payment', 'expense', 'bill', 'charge', 'purchase', 'rent', 'utility', 'insurance', 'license', 'supplies', 'marketing', 'equipment', 'freelancer']
+                            credit_keywords = ['received', 'deposit', 'revenue', 'income', 'retainer', 'consulting', 'service', 'client']
+
+                            desc_lower = description.lower()
+                            if any(keyword in desc_lower for keyword in debit_keywords):
+                                columns = [date_part, description, reference, amount, "", balance]
+                            elif any(keyword in desc_lower for keyword in credit_keywords):
+                                columns = [date_part, description, reference, "", amount, balance]
+                            else:
+                                # Default to debit if uncertain
+                                columns = [date_part, description, reference, amount, "", balance]
+
+                elif len(amounts) == 2:
+                    # Two amounts: likely Debit and Balance or Credit and Balance
+                    # The last amount is usually the balance
+                    balance = amounts[-1]
+                    transaction_amount = amounts[0]
+
+                    # Extract description and reference
+                    desc_parts = []
+                    for col in natural_columns[1:]:
+                        if col not in amounts:
+                            desc_parts.append(col)
+
+                    if len(desc_parts) > 1:
+                        description = ' '.join(desc_parts[:-1])
+                        reference = desc_parts[-1]
+                    else:
+                        description = ' '.join(desc_parts)
+                        reference = ""
+
+                    # Determine if transaction amount is debit or credit based on reference pattern first
+                    if reference.startswith('DEP'):
+                        # DEP = Deposit = Credit
+                        columns = [date_part, description, reference, "", transaction_amount, balance]
+                    elif reference.startswith('CHQ') or reference.startswith('AUTO'):
+                        # CHQ = Check, AUTO = Automatic charge = Debit
+                        columns = [date_part, description, reference, transaction_amount, "", balance]
+                    elif reference.startswith('OB'):
+                        # Opening Balance - no debit/credit, just balance
+                        columns = [date_part, description, reference, "", "", balance]
+                    else:
+                        # Fallback to description-based classification
+                        debit_keywords = ['payment', 'expense', 'bill', 'charge', 'purchase', 'rent', 'utility', 'insurance', 'license', 'supplies', 'marketing', 'equipment', 'freelancer']
+                        credit_keywords = ['received', 'deposit', 'revenue', 'income', 'retainer', 'consulting', 'service', 'client']
+
+                        desc_lower = description.lower()
+                        if any(keyword in desc_lower for keyword in debit_keywords):
+                            columns = [date_part, description, reference, transaction_amount, "", balance]
+                        elif any(keyword in desc_lower for keyword in credit_keywords):
+                            columns = [date_part, description, reference, "", transaction_amount, balance]
+                        else:
+                            # Default to debit if uncertain
+                            columns = [date_part, description, reference, transaction_amount, "", balance]
+
+                else:
+                    # No amounts or too many amounts, use natural split
+                    columns = natural_columns
+            else:
+                # Not a transaction line, use natural split
+                columns = natural_columns
+
+        # Clean and pad columns
+        columns = [col.strip() for col in columns]
+
+        # Pad with empty strings if needed
+        while len(columns) < expected_columns:
+            columns.append('')
+
+        return columns[:expected_columns]  # Truncate if too many
+
+    def _map_to_standard_name(self, field_type: FieldType, original_name: str) -> str:
+        """Map field type to standard schema name"""
+        type_to_name = {
+            FieldType.DATE: 'Date',
+            FieldType.DESCRIPTION: 'Description',
+            FieldType.REFERENCE: 'Reference',
+            FieldType.DEBIT: 'Debit Amount',
+            FieldType.CREDIT: 'Credit Amount',
+            FieldType.BALANCE: 'Balance',
+            FieldType.AMOUNT: 'Amount',
+            FieldType.CUSTOMER: 'Customer',
+            FieldType.VENDOR: 'Vendor',
+            FieldType.INVOICE_NUMBER: 'Invoice Number',
+            FieldType.TAX: 'Tax',
+            FieldType.UNKNOWN: original_name  # Keep original if unknown
+        }
+        return type_to_name.get(field_type, original_name)
+
+class DataExtractionOrchestrator:
+    """Orchestrates data extraction using discovered field mappings"""
+
+    def __init__(self, engine: PDFIntelligenceEngine, mapper: SemanticFieldMapper):
+        self.engine = engine
+        self.mapper = mapper
+
+    async def extract_data(self, table_region: TableRegion, field_mappings: List[FieldMapping]) -> ExtractionResult:
+        """Extract structured data using field mappings"""
+        try:
+            records = []
+            headers = [mapping.standard_name for mapping in field_mappings]
+
+            # Process each data line
+            for line_idx, line in enumerate(table_region.lines[1:]):  # Skip header
+                if not self.mapper._is_data_line(line):
+                    continue
+
+                # Split line into columns
+                columns = self.mapper._split_line_into_columns(line, len(field_mappings))
+                logger.debug(f"🔍 Line: '{line}' → Columns: {columns}")
+
+                # Create record data
+                record_data = {}
+                for i, mapping in enumerate(field_mappings):
+                    if i < len(columns):
+                        raw_value = columns[i].strip()
+                        processed_value = self._process_field_value(raw_value, mapping.field_type)
+                        record_data[mapping.standard_name] = processed_value
+                        logger.debug(f"🔍 Mapped '{raw_value}' → '{mapping.standard_name}': {processed_value}")
+
+                # Add metadata
+                record_data['id'] = f"pdf-record-{len(records)}"
+                record_data['confidence'] = 0.85
+                record_data['source'] = 'universal_pdf_extraction'
+
+                # Create ExtractedRecord
+                records.append(ExtractedRecord(
+                    row_index=len(records),
+                    data=record_data,
+                    confidence=0.85
+                ))
+
+            logger.info(f"📊 Extracted {len(records)} records using universal processor")
+
+            return ExtractionResult(
+                records=records,
+                total_records=len(records),
+                extraction_confidence=0.85 if records else 0.3,
+                schema_detected={
+                    'format': 'universal_pdf',
+                    'table_type': table_region.table_type,
+                    'headers': ', '.join(headers)
+                },
+                processing_notes=[f"Universal extraction: {len(records)} records from {table_region.table_type} table"]
+            )
+
+        except Exception as e:
+            logger.error(f"Data extraction failed: {e}")
+            return ExtractionResult(
+                records=[],
+                total_records=0,
+                extraction_confidence=0.0,
+                schema_detected={},
+                processing_notes=[f"Data extraction failed: {str(e)}"]
+            )
+
+    def _process_field_value(self, value: str, field_type: FieldType) -> Optional[str]:
+        """Process field value based on its type"""
+        if not value or value.lower() in ['', '-', 'nil', 'null']:
+            return None
+
+        if field_type == FieldType.AMOUNT or field_type == FieldType.DEBIT or field_type == FieldType.CREDIT or field_type == FieldType.BALANCE:
+            # Clean amount values
+            cleaned = re.sub(r'[^\d.,]', '', value)  # Remove currency symbols
+            if cleaned:
+                return cleaned
+
+        return value
+
+async def _fallback_line_processing(text: str, engine: PDFIntelligenceEngine) -> ExtractionResult:
+    """Fallback processing when no table structure is detected"""
+    try:
+        lines = text.split('\n')
+        records = []
+
+        # Use basic pattern matching as fallback
+        for line_idx, line in enumerate(lines):
+            line = line.strip()
+            if not line or len(line) < 10:
+                continue
+
+            # Look for lines with date and amount patterns
+            date_match = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})', line)
+            amount_matches = re.findall(r'([\d,]+\.?\d*)', line)
+
+            if date_match and amount_matches:
+                # Extract description (text between date and first amount)
+                date_end = date_match.end()
+                first_amount_start = line.find(amount_matches[0], date_end)
+                description = line[date_end:first_amount_start].strip()
+
+                # Create basic record
+                record_data = {
+                    'Date': date_match.group(1),
+                    'Description': description,
+                    'Amount': amount_matches[0],
+                    'id': f"fallback-record-{len(records)}",
+                    'confidence': 0.6,
+                    'source': 'fallback_extraction'
+                }
+
+                records.append(ExtractedRecord(
+                    row_index=len(records),
+                    data=record_data,
+                    confidence=0.6
+                ))
+
+        logger.info(f"📋 Fallback processing extracted {len(records)} records")
+
+        return ExtractionResult(
+            records=records,
+            total_records=len(records),
+            extraction_confidence=0.6 if records else 0.2,
+            schema_detected={'format': 'fallback_extraction'},
+            processing_notes=[f"Fallback extraction: {len(records)} records"]
+        )
+
+    except Exception as e:
+        logger.error(f"Fallback processing failed: {e}")
+        return ExtractionResult(
+            records=[],
+            total_records=0,
+            extraction_confidence=0.0,
+            schema_detected={},
+            processing_notes=[f"Fallback processing failed: {str(e)}"]
+        )
+
+# Backward compatibility: alias the universal processor
+async def process_bank_statement_pdf(content: bytes, filename: str) -> ExtractionResult:
+    """Backward compatibility wrapper - uses universal PDF processor"""
+    logger.info("🔄 Using universal PDF processor for backward compatibility")
+    return await process_pdf_document(content, filename)
 
 async def process_excel_register(content: bytes, filename: str, doc_type: str) -> ExtractionResult:
     """Process Excel sales/purchase register with structured data extraction"""
@@ -785,44 +1677,58 @@ async def classify_document(file: UploadFile = File(...)):
 async def extract_document_data(file: UploadFile = File(...)):
     """Enhanced AI document processing with multi-format support"""
     start_time = datetime.now()
+    logger.info(f"🔍 Starting document extraction for: {file.filename}")
 
     try:
         # Validate file format
         file_format = detect_file_format(file)
+        logger.info(f"📄 Detected file format: {file_format}")
         if file_format == 'unknown':
             raise HTTPException(status_code=400, detail="Unsupported file format. Please upload PDF, Excel (.xlsx/.xls), or CSV files.")
 
         # Read file content
         content = await file.read()
         await file.seek(0)  # Reset file pointer for text extraction
+        logger.info(f"📊 File size: {len(content)} bytes")
 
         # Extract text content for classification
+        logger.info("🔤 Extracting text content for classification...")
         text_content = await extract_text_from_file(file)
+        logger.info(f"📝 Extracted text length: {len(text_content)} characters")
 
         # Classify document
+        logger.info("🤖 Starting AI document classification...")
         classification = await classify_document_with_ai(
             content=text_content,
             filename=file.filename or "unknown",
             file_type=file.content_type or "unknown"
         )
+        logger.info(f"📋 Classification result: {classification.document_type} (confidence: {classification.confidence})")
 
         # Use format-specific processing based on file type and classification
+        logger.info("⚙️ Starting data extraction...")
         if file_format == 'pdf' and classification.document_type == 'bank_statement':
+            logger.info("🏦 Processing as PDF bank statement")
             extraction = await process_bank_statement_pdf(content, file.filename or "")
         elif file_format == 'excel' and classification.document_type in ['sales_register', 'purchase_register']:
+            logger.info(f"📊 Processing as Excel {classification.document_type}")
             extraction = await process_excel_register(content, file.filename or "", classification.document_type)
         else:
-            # Fallback to general extraction
+            logger.info(f"🔧 Using general AI extraction for {classification.document_type}")
             extraction = await extract_data_with_ai(text_content, classification.document_type)
-        
+
+        logger.info(f"✅ Extraction completed: {len(extraction.records)} records extracted")
+
         # Calculate processing time
         processing_time = int((datetime.now() - start_time).total_seconds() * 1000)
-        
+        logger.info(f"⏱️ Total processing time: {processing_time}ms")
+
         return DocumentProcessingResponse(
             classification=classification,
             extraction=extraction,
             processing_time_ms=processing_time,
-            ai_enhanced=openai_client is not None
+            ai_enhanced=openai_client is not None,
+            raw_text_content=text_content
         )
         
     except Exception as e:

@@ -2,6 +2,7 @@ import { ClassifierAgent, ClassificationResult } from './ClassifierAgent';
 import { DataExtractionAgent, AgentExtractionResult } from './DataExtractionAgent';
 import { storage } from '../storage';
 import { aiServiceIntegration } from '../services/aiServiceIntegration';
+import { BankStatementDataService } from '../services/bankStatementDataService';
 
 export interface ProcessingResult {
   documentId: string;
@@ -13,6 +14,13 @@ export interface ProcessingResult {
   errors?: string[];
   journalEntriesGenerated?: number;
   aiEnhanced?: boolean;
+  rawTextContent?: string;
+  bankStatementStorage?: {
+    recordsStored: number;
+    skippedRecords: number;
+    totalRecords: number;
+    errors: string[];
+  };
 }
 
 export class AgentOrchestrator {
@@ -122,6 +130,69 @@ export class AgentOrchestrator {
         }
       });
 
+      // Step 4.5: Store bank statement data in dedicated table
+      let bankStatementStorage = undefined;
+      if (classification.documentType === 'bank_statement' && extraction.records && extraction.records.length > 0) {
+        console.log('Step 4.5: Bank Statement Data Storage');
+        console.log(`📊 Processing ${extraction.records.length} bank statement records for storage`);
+
+        try {
+          // Process and validate extracted data
+          const processedData = await BankStatementDataService.processExtractedData(
+            extraction.records,
+            documentId,
+            tenantId
+          );
+
+          console.log(`✅ Processed data: ${processedData.validRecords.length} valid, ${processedData.skippedRecords} skipped`);
+
+          // Store valid records in database
+          if (processedData.validRecords.length > 0) {
+            const storageResult = await BankStatementDataService.storeRecords(processedData, documentId);
+
+            if (storageResult.success) {
+              console.log(`💾 Successfully stored ${storageResult.recordsStored} bank statement records`);
+
+              // Update document status to indicate successful storage
+              await storage.updateDocument(documentId, {
+                status: 'completed',
+                metadata: {
+                  ...extraction,
+                  bankStatementDataStored: true,
+                  recordsStored: storageResult.recordsStored,
+                  aiEnhanced: aiResult.aiEnhanced
+                }
+              });
+            } else {
+              console.error(`❌ Failed to store bank statement records: ${storageResult.error}`);
+            }
+
+            bankStatementStorage = {
+              recordsStored: storageResult.recordsStored,
+              skippedRecords: processedData.skippedRecords,
+              totalRecords: processedData.totalRecords,
+              errors: [...processedData.errors, ...(storageResult.error ? [storageResult.error] : [])]
+            };
+          } else {
+            console.log('⚠️ No valid bank statement records to store');
+            bankStatementStorage = {
+              recordsStored: 0,
+              skippedRecords: processedData.skippedRecords,
+              totalRecords: processedData.totalRecords,
+              errors: processedData.errors
+            };
+          }
+        } catch (error) {
+          console.error('❌ Bank statement data storage failed:', error);
+          bankStatementStorage = {
+            recordsStored: 0,
+            skippedRecords: 0,
+            totalRecords: extraction.records.length,
+            errors: [`Storage failed: ${error.message}`]
+          };
+        }
+      }
+
       // Step 5: Generate journal entries for financial documents
       console.log('Step 5: Journal Entry Generation');
       const journalEntries = await this.generateJournalEntries(
@@ -167,7 +238,9 @@ export class AgentOrchestrator {
         processingTime,
         errors: errors.length > 0 ? errors : undefined,
         journalEntriesGenerated: journalEntries.length,
-        aiEnhanced: aiResult.aiEnhanced
+        aiEnhanced: aiResult.aiEnhanced,
+        rawTextContent: aiResult.rawTextContent,
+        bankStatementStorage
       };
       
     } catch (error) {

@@ -29,6 +29,23 @@ interface ExtractedData {
   confidence: number;
 }
 
+interface BankStatementRecord {
+  id: number;
+  transactionDate: string;
+  description: string;
+  reference?: string;
+  debitAmount?: string;
+  creditAmount?: string;
+  balance?: string;
+  confidence: number;
+  source: string;
+  rowIndex?: number;
+  createdAt: string;
+  documentId: string;
+  fileName: string;
+  originalName: string;
+}
+
 export default function DataTables() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
@@ -55,8 +72,26 @@ export default function DataTables() {
     queryKey: [`/api/extracted-data?period=${selectedPeriod}&docType=${selectedDocType}`],
   });
 
+  // Query for bank statement data from the new dedicated table
+  const { data: bankStatementData, isLoading: bankDataLoading, error: bankError } = useQuery<{
+    success: boolean;
+    data: BankStatementRecord[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  }>({
+    queryKey: ['/api/data-tables/bank-statement?page=1&limit=100'],
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
   console.log('Data Tables Query:', { extractedData, isLoading, error });
+  console.log('Bank Statement Query:', { bankStatementData, bankDataLoading, bankError });
   console.log('Extracted data length:', extractedData?.length || 0);
+  console.log('Bank statement records:', bankStatementData?.data?.length || 0);
   console.log('Selected period:', selectedPeriod, 'Selected doc type:', selectedDocType);
 
   const filteredData = extractedData?.filter(item => {
@@ -230,53 +265,139 @@ export default function DataTables() {
     </div>
   );
 
-  const renderBankStatementData = (data: any[]) => (
-    <div className="space-y-4">
-      {data.map((item) => (
-        <Card key={item.id} className="border-l-4 border-l-orange-500">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">{item.fileName}</CardTitle>
-              <Badge variant="outline" className="bg-orange-50 text-orange-700">
-                {(item.confidence * 100).toFixed(1)}% confidence
-              </Badge>
+  const renderBankStatementData = () => {
+    if (bankDataLoading) {
+      return (
+        <div className="space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i} className="border-l-4 border-l-orange-500">
+              <CardHeader>
+                <Skeleton className="h-6 w-48" />
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {[...Array(5)].map((_, j) => (
+                    <Skeleton key={j} className="h-12 w-full" />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      );
+    }
+
+    if (bankError) {
+      return (
+        <Card className="border-l-4 border-l-red-500">
+          <CardContent className="p-6">
+            <div className="text-center text-red-600">
+              <p>Failed to load bank statement data</p>
+              <p className="text-sm text-muted-foreground mt-2">
+                {bankError instanceof Error ? bankError.message : 'Unknown error'}
+              </p>
             </div>
-            <CardDescription>
-              Extracted on {new Date(item.extractedAt).toLocaleDateString()} • {item.totalRecords} records
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Debit</TableHead>
-                  <TableHead>Credit</TableHead>
-                  <TableHead>Balance</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {item.data?.map((transaction: any, idx: number) => (
-                  <TableRow key={idx}>
-                    <TableCell className="font-medium">{transaction.transaction_date || "N/A"}</TableCell>
-                    <TableCell>{transaction.description || "N/A"}</TableCell>
-                    <TableCell className="font-mono text-red-600">
-                      {transaction.debit_amount ? `₹${transaction.debit_amount.toLocaleString()}` : "-"}
-                    </TableCell>
-                    <TableCell className="font-mono text-green-600">
-                      {transaction.credit_amount ? `₹${transaction.credit_amount.toLocaleString()}` : "-"}
-                    </TableCell>
-                    <TableCell className="font-mono font-semibold">₹{transaction.balance?.toLocaleString() || "0"}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
           </CardContent>
         </Card>
-      ))}
-    </div>
-  );
+      );
+    }
+
+    const records = bankStatementData?.data || [];
+
+    if (records.length === 0) {
+      return (
+        <Card className="border-l-4 border-l-orange-500">
+          <CardContent className="p-6">
+            <div className="text-center text-muted-foreground">
+              <Database className="h-12 w-12 mx-auto mb-4" />
+              <p>No bank statement data found</p>
+              <p className="text-sm mt-2">
+                Upload and process bank statement documents to see transaction data here.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // Group records by document
+    const groupedRecords = records.reduce((acc, record) => {
+      const key = record.documentId;
+      if (!acc[key]) {
+        acc[key] = {
+          documentId: record.documentId,
+          fileName: record.fileName,
+          originalName: record.originalName,
+          records: []
+        };
+      }
+      acc[key].records.push(record);
+      return acc;
+    }, {} as Record<string, { documentId: string; fileName: string; originalName: string; records: BankStatementRecord[] }>);
+
+    return (
+      <div className="space-y-4">
+        {Object.values(groupedRecords).map((group) => (
+          <Card key={group.documentId} className="border-l-4 border-l-orange-500">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">{group.originalName}</CardTitle>
+                <Badge variant="outline" className="bg-orange-50 text-orange-700">
+                  {group.records.length} transactions
+                </Badge>
+              </div>
+              <CardDescription>
+                Source Document: {group.fileName} • {group.records.length} records stored in database
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Reference</TableHead>
+                    <TableHead>Debit</TableHead>
+                    <TableHead>Credit</TableHead>
+                    <TableHead>Balance</TableHead>
+                    <TableHead>Confidence</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {group.records.map((record) => (
+                    <TableRow key={record.id}>
+                      <TableCell className="font-medium">
+                        {new Date(record.transactionDate).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>{record.description}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {record.reference || "-"}
+                      </TableCell>
+                      <TableCell className="font-mono text-red-600">
+                        {record.debitAmount ? `₹${parseFloat(record.debitAmount).toLocaleString()}` : "-"}
+                      </TableCell>
+                      <TableCell className="font-mono text-green-600">
+                        {record.creditAmount ? `₹${parseFloat(record.creditAmount).toLocaleString()}` : "-"}
+                      </TableCell>
+                      <TableCell className="font-mono font-semibold">
+                        {record.balance ? `₹${parseFloat(record.balance).toLocaleString()}` : "-"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {(record.confidence * 100).toFixed(0)}%
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  };
 
   const renderPurchaseRegisterData = (data: any[]) => (
     <div className="space-y-4">
@@ -547,10 +668,10 @@ export default function DataTables() {
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Bank Statement Data</h2>
             <Badge variant="outline" className="bg-orange-50 text-orange-700">
-              {getDocumentTypeData("bank_statement").length} documents
+              {bankStatementData?.data?.length || 0} transactions
             </Badge>
           </div>
-          {renderBankStatementData(getDocumentTypeData("bank_statement"))}
+          {renderBankStatementData()}
         </TabsContent>
 
         <TabsContent value="purchase_register" className="space-y-4">
