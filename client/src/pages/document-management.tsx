@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, Upload, Download, Eye, Trash2, Calendar, RefreshCw, Database, User, Settings, Filter } from "lucide-react";
+import { FileText, Upload, Download, Eye, Trash2, Calendar, RefreshCw, Database, User, Settings, Filter, X } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 
@@ -427,10 +427,19 @@ export default function DocumentManagement() {
 
         {/* Document Details Modal */}
         {selectedDocument && (
-          <AlertDialog open={!!selectedDocument} onOpenChange={() => setSelectedDocument(null)}>
-            <AlertDialogContent className="max-w-2xl">
+          <AlertDialog open={!!selectedDocument} onOpenChange={(open) => !open && setSelectedDocument(null)}>
+            <AlertDialogContent className="max-w-2xl" onEscapeKeyDown={() => setSelectedDocument(null)}>
               <AlertDialogHeader>
                 <AlertDialogTitle>Document Details</AlertDialogTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedDocument(null)}
+                  className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
+                >
+                  <X className="h-4 w-4" />
+                  <span className="sr-only">Close</span>
+                </Button>
               </AlertDialogHeader>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -593,7 +602,14 @@ export default function DocumentManagement() {
                 )}
               </div>
               <AlertDialogFooter>
-                <AlertDialogCancel>Close</AlertDialogCancel>
+                <AlertDialogCancel onClick={() => setSelectedDocument(null)}>Close</AlertDialogCancel>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setSelectedDocument(null)}
+                  className="ml-2"
+                >
+                  Cancel
+                </Button>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
