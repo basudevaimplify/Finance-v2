@@ -3964,6 +3964,180 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== FINANCIAL DOCUMENT ANALYSIS ENDPOINTS =====
+  // These endpoints analyze uploaded documents and generate specific financial reports
+  // following Companies Act 2013, IndAS standards, GST/CGST rules, and Income Tax TDS rules
+
+  // Enhanced Trial Balance from Journal Entry CSV
+  app.post('/api/reports/enhanced-trial-balance', noAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.userId;
+      const { period, download = false } = req.body;
+      
+      console.log('Enhanced Trial Balance Request:', { userId, period, download });
+      
+      // Get user's tenant for security
+      const user = await storage.getUser(userId);
+      if (!user?.tenantId) {
+        return res.status(403).json({ message: "Access denied: User not assigned to any tenant" });
+      }
+      
+      const { financialDocumentAnalyzer } = await import('./services/financialDocumentAnalyzer');
+      const trialBalance = await financialDocumentAnalyzer.generateTrialBalance(user.tenantId, period);
+      
+      if (download) {
+        const csvData = financialDocumentAnalyzer.generateCSV(trialBalance.entries, 'Trial Balance');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="trial_balance.csv"');
+        return res.send(csvData);
+      }
+      
+      res.json({
+        ...trialBalance,
+        totalDebitsText: `Rs ${trialBalance.totalDebits.toLocaleString('en-IN')}`,
+        totalCreditsText: `Rs ${trialBalance.totalCredits.toLocaleString('en-IN')}`,
+        reportType: 'Enhanced Trial Balance',
+        generatedFrom: 'Uploaded Journal Entry CSV',
+        compliance: ['Companies Act 2013', 'IndAS Standards']
+      });
+    } catch (error) {
+      console.error("Error generating enhanced trial balance:", error);
+      res.status(500).json({ message: "Failed to generate trial balance from uploaded documents" });
+    }
+  });
+
+  // GSTR-2A from Purchase Register CSV
+  app.post('/api/reports/enhanced-gstr-2a', noAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.userId;
+      const { period, download = false } = req.body;
+      
+      console.log('Enhanced GSTR-2A Request:', { userId, period, download });
+      
+      const user = await storage.getUser(userId);
+      if (!user?.tenantId) {
+        return res.status(403).json({ message: "Access denied: User not assigned to any tenant" });
+      }
+      
+      const { financialDocumentAnalyzer } = await import('./services/financialDocumentAnalyzer');
+      const gstr2a = await financialDocumentAnalyzer.generateGSTR2A(user.tenantId, period);
+      
+      if (download) {
+        const csvData = financialDocumentAnalyzer.generateCSV(gstr2a.entries, 'GSTR-2A');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="gstr_2a.csv"');
+        return res.send(csvData);
+      }
+      
+      res.json({
+        ...gstr2a,
+        reportType: 'GSTR-2A',
+        generatedFrom: 'Purchase Register CSV',
+        compliance: ['GST Act', 'CGST Rules'],
+        summary: {
+          totalInvoices: gstr2a.entries.length,
+          totalTaxableValue: `Rs ${gstr2a.totalTaxableValue.toLocaleString('en-IN')}`,
+          totalCGST: `Rs ${gstr2a.totalCGST.toLocaleString('en-IN')}`,
+          totalSGST: `Rs ${gstr2a.totalSGST.toLocaleString('en-IN')}`,
+          totalIGST: `Rs ${gstr2a.totalIGST.toLocaleString('en-IN')}`,
+          grandTotal: `Rs ${gstr2a.grandTotal.toLocaleString('en-IN')}`
+        }
+      });
+    } catch (error) {
+      console.error("Error generating enhanced GSTR-2A:", error);
+      res.status(500).json({ message: "Failed to generate GSTR-2A from purchase register data" });
+    }
+  });
+
+  // GSTR-3B from Sales Register and Purchase Register CSVs
+  app.post('/api/reports/enhanced-gstr-3b', noAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.userId;
+      const { period, download = false } = req.body;
+      
+      console.log('Enhanced GSTR-3B Request:', { userId, period, download });
+      
+      const user = await storage.getUser(userId);
+      if (!user?.tenantId) {
+        return res.status(403).json({ message: "Access denied: User not assigned to any tenant" });
+      }
+      
+      const { financialDocumentAnalyzer } = await import('./services/financialDocumentAnalyzer');
+      const gstr3b = await financialDocumentAnalyzer.generateGSTR3B(user.tenantId, period);
+      
+      if (download) {
+        const combinedData = [
+          ...gstr3b.outwardSupplies.map(entry => ({ ...entry, type: 'Outward Supply' })),
+          ...gstr3b.inwardSupplies.map(entry => ({ ...entry, type: 'Inward Supply' }))
+        ];
+        const csvData = financialDocumentAnalyzer.generateCSV(combinedData, 'GSTR-3B');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="gstr_3b.csv"');
+        return res.send(csvData);
+      }
+      
+      res.json({
+        ...gstr3b,
+        reportType: 'GSTR-3B',
+        generatedFrom: 'Sales Register and Purchase Register CSVs',
+        compliance: ['GST Act', 'CGST Rules'],
+        netTaxPayable: {
+          ...gstr3b.netTaxPayable,
+          cgstText: `Rs ${gstr3b.netTaxPayable.cgst.toLocaleString('en-IN')}`,
+          sgstText: `Rs ${gstr3b.netTaxPayable.sgst.toLocaleString('en-IN')}`,
+          igstText: `Rs ${gstr3b.netTaxPayable.igst.toLocaleString('en-IN')}`,
+          totalText: `Rs ${gstr3b.netTaxPayable.total.toLocaleString('en-IN')}`
+        }
+      });
+    } catch (error) {
+      console.error("Error generating enhanced GSTR-3B:", error);
+      res.status(500).json({ message: "Failed to generate GSTR-3B from sales and purchase data" });
+    }
+  });
+
+  // Bank Reconciliation from Bank Statement and Journal Entry CSVs
+  app.post('/api/reports/enhanced-bank-reconciliation', noAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.userId;
+      const { period, download = false } = req.body;
+      
+      console.log('Enhanced Bank Reconciliation Request:', { userId, period, download });
+      
+      const user = await storage.getUser(userId);
+      if (!user?.tenantId) {
+        return res.status(403).json({ message: "Access denied: User not assigned to any tenant" });
+      }
+      
+      const { financialDocumentAnalyzer } = await import('./services/financialDocumentAnalyzer');
+      const bankReconciliation = await financialDocumentAnalyzer.generateBankReconciliation(user.tenantId, period);
+      
+      if (download) {
+        const csvData = financialDocumentAnalyzer.generateCSV(bankReconciliation.entries, 'Bank Reconciliation');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="bank_reconciliation.csv"');
+        return res.send(csvData);
+      }
+      
+      res.json({
+        ...bankReconciliation,
+        reportType: 'Bank Reconciliation',
+        generatedFrom: 'Bank Statement and Journal Entry CSVs',
+        compliance: ['Companies Act 2013', 'Banking Regulations'],
+        summary: {
+          totalTransactions: bankReconciliation.entries.length,
+          totalMatched: bankReconciliation.totalMatched,
+          totalUnmatched: bankReconciliation.totalUnmatched,
+          matchingAccuracy: `${bankReconciliation.matchingAccuracy}%`,
+          reconciliationStatus: bankReconciliation.matchingAccuracy > 80 ? 'Good' : 
+                              bankReconciliation.matchingAccuracy > 60 ? 'Acceptable' : 'Needs Review'
+        }
+      });
+    } catch (error) {
+      console.error("Error generating enhanced bank reconciliation:", error);
+      res.status(500).json({ message: "Failed to generate bank reconciliation from uploaded data" });
+    }
+  });
+
   // 404 handler for API routes (must be after all other API routes)
   app.use('/api/*', (req, res) => {
     res.status(404).json({
@@ -4190,5 +4364,6 @@ async function generateBalanceSheet(journalEntries: any[]): Promise<any> {
     isBalanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.01
   };
 }
+
 
 
