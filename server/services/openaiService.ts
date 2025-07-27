@@ -225,6 +225,117 @@ Extract ALL tabular data with proper field mapping and data type conversion.
     
     return 'unknown';
   }
+
+  /**
+   * Generate structured response using GPT-4o with schema validation
+   */
+  async generateStructuredResponse(prompt: string, schema: any): Promise<any> {
+    try {
+      console.log('Generating structured response for journal entries...');
+      
+      const response = await getOpenAIClient().chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "Generate concise journal entries in valid JSON format only. Keep responses short and simple."
+          },
+          {
+            role: "user", 
+            content: prompt
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.1,
+        max_tokens: 800
+      });
+
+      const content = response.choices[0].message.content || '{}';
+      console.log('OpenAI response received, length:', content.length);
+      
+      return this.parseAndValidateJournalResponse(content);
+      
+    } catch (error) {
+      console.error('Error in OpenAI API call:', error);
+      return this.getFallbackJournalResponse();
+    }
+  }
+
+  private parseAndValidateJournalResponse(content: string): any {
+    try {
+      const result = JSON.parse(content);
+      
+      if (!result.journalEntries || !Array.isArray(result.journalEntries)) {
+        console.warn('Invalid response structure from OpenAI, using fallback');
+        return this.getFallbackJournalResponse();
+      }
+      
+      console.log(`Successfully parsed ${result.journalEntries.length} journal entries`);
+      return result;
+      
+    } catch (parseError) {
+      console.error('JSON parse failed:', parseError);
+      console.log('Attempting to clean malformed JSON...');
+      
+      try {
+        const cleanedContent = this.cleanMalformedJson(content);
+        const result = JSON.parse(cleanedContent);
+        
+        if (!result.journalEntries || !Array.isArray(result.journalEntries)) {
+          return this.getFallbackJournalResponse();
+        }
+        
+        console.log('Successfully parsed cleaned JSON');
+        return result;
+        
+      } catch (secondError) {
+        console.error('Cleanup failed, using fallback response');
+        return this.getFallbackJournalResponse();
+      }
+    }
+  }
+
+  private cleanMalformedJson(content: string): string {
+    let cleaned = content.trim();
+    
+    // Remove trailing commas
+    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+    
+    // Count braces and brackets to add missing closures
+    let braceCount = 0;
+    let bracketCount = 0;
+    
+    for (const char of cleaned) {
+      if (char === '{') braceCount++;
+      if (char === '}') braceCount--;
+      if (char === '[') bracketCount++;
+      if (char === ']') bracketCount--;
+    }
+    
+    while (braceCount > 0) {
+      cleaned += '}';
+      braceCount--;
+    }
+    while (bracketCount > 0) {
+      cleaned += ']';
+      bracketCount--;
+    }
+    
+    return cleaned;
+  }
+
+  private getFallbackJournalResponse(): any {
+    return {
+      journalEntries: [{
+        entryDate: new Date().toISOString().split('T')[0],
+        description: 'AI journal generation failed - manual review required',
+        debitAccount: 'Suspense Account',
+        creditAccount: 'Suspense Account', 
+        amount: 0,
+        reference: 'FALLBACK_ENTRY'
+      }]
+    };
+  }
 }
 
 export const openaiService = new OpenAIService();

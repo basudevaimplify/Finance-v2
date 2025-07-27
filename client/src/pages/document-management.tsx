@@ -79,6 +79,73 @@ export default function DocumentManagement() {
     },
   });
 
+  // Journal generation mutation
+  const generateJournalMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/journal/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Success",
+        description: data.message || `Generated ${data.totalEntries} journal entries`,
+      });
+      // Optionally refresh documents list if needed
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+    },
+    onError: (error) => {
+      console.error("Journal generation error:", error);
+      toast({
+        title: "Error",
+        description: `Failed to generate journal entries: ${error.message}`,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // CSV download function
+  const downloadJournalCSV = async () => {
+    try {
+      const response = await fetch('/api/journal/download-csv');
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `journal_entries_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast({
+        title: "Success",
+        description: "Journal entries CSV downloaded successfully",
+      });
+    } catch (error) {
+      console.error("CSV download error:", error);
+      toast({
+        title: "Error",
+        description: `Failed to download CSV: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: "destructive",
+      });
+    }
+  };
+
   const getDocumentTypeIcon = (type: string) => {
     switch (type) {
       case 'journal':
@@ -275,6 +342,48 @@ export default function DocumentManagement() {
           </CardContent>
         </Card>
 
+        {/* Journal Entry Generation Actions */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Journal Entry Generation
+            </CardTitle>
+            <CardDescription>
+              Generate standard accounting journal entries from uploaded financial documents following Companies Act 2013 and IndAS rules.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <Button
+                onClick={() => generateJournalMutation.mutate()}
+                disabled={generateJournalMutation.isPending || !documents?.length}
+                className="flex items-center gap-2"
+              >
+                {generateJournalMutation.isPending ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="h-4 w-4" />
+                )}
+                {generateJournalMutation.isPending ? 'Generating...' : 'Generate Journal Entries'}
+              </Button>
+              
+              <Button
+                variant="outline"
+                onClick={downloadJournalCSV}
+                className="flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Download CSV
+              </Button>
+              
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                {documents?.length || 0} documents ready for processing
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Documents Table */}
         <Card>
           <CardHeader>
@@ -311,7 +420,7 @@ export default function DocumentManagement() {
                         <TableRow key={document.id}>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              {getDocumentTypeIcon(document.documentType)}
+                              {getDocumentTypeIcon(document.documentType || 'unknown')}
                               <div>
                                 <div className="font-medium text-gray-900 dark:text-white">
                                   {document.originalName}
@@ -324,7 +433,7 @@ export default function DocumentManagement() {
                           </TableCell>
                           <TableCell>
                             <Badge variant="secondary">
-                              {getDocumentTypeName(document.documentType)}
+                              {getDocumentTypeName(document.documentType || 'unknown')}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -529,7 +638,7 @@ export default function DocumentManagement() {
                  typeof selectedDocument.extractedData === 'object' && 
                  'records' in selectedDocument.extractedData && 
                  Array.isArray((selectedDocument.extractedData as any).records) && 
-                 (selectedDocument.extractedData as any).records.length > 0 && (
+                 (selectedDocument.extractedData as any).records.length > 0 ? (
                   <div>
                     <label className="text-sm font-medium text-gray-600 dark:text-gray-400">
                       Extracted Data ({(selectedDocument.extractedData as any).totalRecords || (selectedDocument.extractedData as any).records.length} records)
@@ -599,7 +708,7 @@ export default function DocumentManagement() {
                       </div>
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
               <AlertDialogFooter>
                 <AlertDialogCancel onClick={() => setSelectedDocument(null)}>Close</AlertDialogCancel>

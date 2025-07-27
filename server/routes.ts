@@ -30,6 +30,7 @@ import bcrypt from "bcrypt";
 import { AgentOrchestrator } from "./agents/AgentOrchestrator";
 import { BankStatementDataService } from './services/bankStatementDataService';
 import { agentRoutes } from "./routes/agentRoutes";
+import { journalRoutes } from "./routes/journalRoutes";
 
 // Helper function to format currency numbers as text
 function formatCurrency(amount: number): string {
@@ -3924,6 +3925,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Agent Pipeline Routes
   app.use('/api/agents', agentRoutes);
+
+  // Journal Entry Generation Routes
+  app.use('/api/journal', journalRoutes);
 
   // Test route to verify route registration
   app.get('/api/data-tables/test', noAuth, (req: any, res) => {
