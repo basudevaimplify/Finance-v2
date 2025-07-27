@@ -351,6 +351,12 @@ export class ClassifierAgent {
   private getDocumentTypeFromFilename(fileName: string): string {
     const lowerName = fileName.toLowerCase();
     
+    // Prioritize vendor invoice detection first
+    if (lowerName.includes('vendor_invoice') || 
+        (lowerName.includes('vendor') && lowerName.includes('invoice')) ||
+        lowerName.includes('supplier_invoice') ||
+        lowerName.includes('bill_')) return 'vendor_invoice';
+        
     if (lowerName.includes('sales')) return 'sales_register';
     if (lowerName.includes('purchase')) return 'purchase_register';
     if (lowerName.includes('bank') || lowerName.includes('statement')) return 'bank_statement';
@@ -358,6 +364,8 @@ export class ClassifierAgent {
     if (lowerName.includes('tds')) return 'tds';
     if (lowerName.includes('gst')) return 'gst';
     if (lowerName.includes('asset')) return 'fixed_asset_register';
+    
+    // Generic invoice check last (after vendor invoice check)
     if (lowerName.includes('invoice')) return 'vendor_invoice';
     
     return 'other';
