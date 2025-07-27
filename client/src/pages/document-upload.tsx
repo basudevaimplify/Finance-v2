@@ -39,6 +39,8 @@ export default function DocumentUpload() {
   const { isAuthenticated, isLoading } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<string>('requirements');
+  const [trialBalanceData, setTrialBalanceData] = useState<any>(null);
+  const [isGeneratingTrialBalance, setIsGeneratingTrialBalance] = useState(false);
 
   // Action handlers for document operations
   const handleUpload = (docId: string) => {
@@ -76,6 +78,11 @@ export default function DocumentUpload() {
         case 'bank_reconciliation':
           endpoint = '/api/reports/bank-reconciliation';
           break;
+        case 'trial_balance':
+          // Special handling for trial balance to update state
+          setIsGeneratingTrialBalance(true);
+          endpoint = '/api/reports/enhanced-trial-balance';
+          break;
         default:
           throw new Error(`Generation not implemented for ${docName}`);
       }
@@ -101,12 +108,24 @@ export default function DocumentUpload() {
       
       const data = await response.json();
       
+      // Store trial balance data if it's a trial balance generation
+      if (docId === 'trial_balance') {
+        setTrialBalanceData(data);
+        setIsGeneratingTrialBalance(false);
+        setActiveTab('trial-balance'); // Switch to trial balance tab
+      }
+      
       toast({
         title: "Document Generated",
         description: `${docName} has been generated successfully. You can view it in the Financial Reports section.`,
       });
       
     } catch (error) {
+      // Reset trial balance loading state on error
+      if (docId === 'trial_balance') {
+        setIsGeneratingTrialBalance(false);
+      }
+      
       toast({
         title: "Generation Failed",
         description: `Failed to generate ${docName}. Please try again.`,
@@ -135,6 +154,9 @@ export default function DocumentUpload() {
           break;
         case 'depreciation_schedule':
           endpoint = '/api/reports/depreciation-schedule';
+          break;
+        case 'trial_balance':
+          endpoint = '/api/reports/enhanced-trial-balance';
           break;
         default:
           throw new Error(`Calculation not implemented for ${docName}`);
@@ -222,7 +244,46 @@ export default function DocumentUpload() {
           endpoint = '/api/reports/depreciation-schedule';
           break;
         case 'trial_balance':
-          endpoint = '/api/reports/trial-balance';
+          // Use enhanced trial balance for CSV download
+          const trialBalanceToken = localStorage.getItem('access_token');
+          if (!trialBalanceToken) {
+            throw new Error('No authentication token found');
+          }
+          
+          const trialBalanceResponse = await fetch('/api/reports/enhanced-trial-balance', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${trialBalanceToken}`,
+            },
+            body: JSON.stringify({ period: 'Q3_2025', download: true }),
+            credentials: 'include',
+          });
+          
+          if (!trialBalanceResponse.ok) {
+            throw new Error(`HTTP error! status: ${trialBalanceResponse.status}`);
+          }
+          
+          const contentType = trialBalanceResponse.headers.get('content-type');
+          if (contentType && contentType.includes('text/csv')) {
+            const blob = await trialBalanceResponse.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `trial_balance_Q3_2025.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            toast({
+              title: "Download Complete",
+              description: "Trial Balance CSV downloaded successfully",
+            });
+            return; // Exit early for CSV download
+          } else {
+            throw new Error('Expected CSV format but received different content type');
+          }
           break;
         case 'profit_loss_statement':
           endpoint = '/api/reports/profit-loss';
@@ -806,10 +867,11 @@ export default function DocumentUpload() {
         </Card>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="requirements">Document Requirements</TabsTrigger>
             <TabsTrigger value="upload">Upload Documents</TabsTrigger>
             <TabsTrigger value="uploaded">Uploaded Files</TabsTrigger>
+            <TabsTrigger value="trial-balance">Trial Balance</TabsTrigger>
           </TabsList>
 
           <TabsContent value="requirements" className="space-y-4">
@@ -1165,6 +1227,137 @@ export default function DocumentUpload() {
                         ))}
                       </TableBody>
                     </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="trial-balance" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Enhanced Trial Balance</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() => handleGenerate('trial_balance', 'Trial Balance')}
+                      disabled={isGeneratingTrialBalance}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <RefreshCw className={`h-4 w-4 mr-1 ${isGeneratingTrialBalance ? 'animate-spin' : ''}`} />
+                      {isGeneratingTrialBalance ? 'Generating...' : 'Generate'}
+                    </Button>
+                    <Button
+                      onClick={() => handleDownload('trial_balance', 'Trial Balance')}
+                      disabled={!trialBalanceData}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <Download className="h-4 w-4 mr-1" />
+                      Download CSV
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Generate trial balance directly from uploaded journal entries with proper debit/credit calculations
+                </p>
+              </CardHeader>
+              <CardContent>
+                {isGeneratingTrialBalance ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                      <span>Generating trial balance from journal entries...</span>
+                    </div>
+                  </div>
+                ) : !trialBalanceData ? (
+                  <div className="text-center py-8">
+                    <Calculator className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-lg font-medium">No trial balance generated yet</p>
+                    <p className="text-sm text-muted-foreground">
+                      Click Generate to create trial balance from uploaded journal entries
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Trial Balance Summary */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="text-center">
+                            <p className="text-sm font-medium text-muted-foreground">Total Debits</p>
+                            <p className="text-2xl font-bold text-green-600">
+                              ₹{trialBalanceData.summary?.totalDebits?.toLocaleString('en-IN') || '0'}
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="text-center">
+                            <p className="text-sm font-medium text-muted-foreground">Total Credits</p>
+                            <p className="text-2xl font-bold text-blue-600">
+                              ₹{trialBalanceData.summary?.totalCredits?.toLocaleString('en-IN') || '0'}
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="text-center">
+                            <p className="text-sm font-medium text-muted-foreground">Balance Status</p>
+                            <Badge className={trialBalanceData.summary?.isBalanced ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
+                              {trialBalanceData.summary?.isBalanced ? "Balanced" : "Unbalanced"}
+                            </Badge>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Trial Balance Table */}
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[300px]">Ledger Name</TableHead>
+                            <TableHead className="text-right w-[150px]">Debit</TableHead>
+                            <TableHead className="text-right w-[150px]">Credit</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {trialBalanceData.ledgers?.map((ledger: any, index: number) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-medium">
+                                {ledger.ledgerName || ledger.accountName || `Account ${index + 1}`}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {ledger.debit > 0 ? `₹${ledger.debit.toLocaleString('en-IN')}` : '-'}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {ledger.credit > 0 ? `₹${ledger.credit.toLocaleString('en-IN')}` : '-'}
+                              </TableCell>
+                            </TableRow>
+                          )) || []}
+                          {/* Totals Row */}
+                          <TableRow className="border-t-2 border-gray-300 font-bold">
+                            <TableCell className="font-bold">Total</TableCell>
+                            <TableCell className="text-right font-mono font-bold">
+                              ₹{trialBalanceData.summary?.totalDebits?.toLocaleString('en-IN') || '0'}
+                            </TableCell>
+                            <TableCell className="text-right font-mono font-bold">
+                              ₹{trialBalanceData.summary?.totalCredits?.toLocaleString('en-IN') || '0'}
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Additional Info */}
+                    <div className="text-sm text-muted-foreground">
+                      <p>Generated from {trialBalanceData.metadata?.sourceDocuments || 'uploaded'} journal entries</p>
+                      <p>Compliance: Companies Act 2013, IndAS standards</p>
+                    </div>
                   </div>
                 )}
               </CardContent>

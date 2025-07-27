@@ -90,7 +90,7 @@ export default function TrialBalanceCard() {
           size="sm" 
           className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white"
         >
-          Generate Report
+          Generate Report1111
         </Button>
       </CardContent>
     </Card>
