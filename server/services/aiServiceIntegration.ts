@@ -67,19 +67,30 @@ class AIServiceIntegration {
    */
   async checkServiceHealth(): Promise<boolean> {
     try {
-      const response: AxiosResponse<HealthCheckResponse> = await axios.get(
-        `${this.baseURL}/health`,
-        { timeout: 5000 }
-      );
+      // Check for direct OpenAI API key availability instead of FastAPI service
+      const openaiApiKey = process.env.OPENAI_API_KEY;
       
-      this.isAvailable = response.status === 200 && response.data.status === 'healthy';
-      
-      if (this.isAvailable) {
-        console.log('✅ AI Service is available:', response.data.service);
-        console.log('🤖 OpenAI available:', response.data.openai_available);
+      if (openaiApiKey && openaiApiKey.startsWith('sk-')) {
+        this.isAvailable = true;
+        console.log('✅ AI Service is available: Direct OpenAI Integration');
+        console.log('🤖 OpenAI API key configured');
+        return this.isAvailable;
+      } else {
+        // Fallback: try to connect to FastAPI service if OpenAI key not available
+        const response: AxiosResponse<HealthCheckResponse> = await axios.get(
+          `${this.baseURL}/health`,
+          { timeout: 5000 }
+        );
+        
+        this.isAvailable = response.status === 200 && response.data.status === 'healthy';
+        
+        if (this.isAvailable) {
+          console.log('✅ AI Service is available:', response.data.service);
+          console.log('🤖 OpenAI available:', response.data.openai_available);
+        }
+        
+        return this.isAvailable;
       }
-      
-      return this.isAvailable;
     } catch (error) {
       this.isAvailable = false;
       console.log('⚠️  AI Service not available, using fallback processing');
