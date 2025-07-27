@@ -30,8 +30,17 @@ function Router() {
 
   console.log('Router render:', { isAuthenticated, isLoading, user });
 
-  // No loading state needed since authentication is bypassed
-  // Always show authenticated view
+  // Show loading state while authentication is initializing
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Switch>
@@ -39,6 +48,7 @@ function Router() {
         <>
           <Route path="/" component={Landing} />
           <Route path="/logout" component={Landing} />
+          <Route component={Landing} />
         </>
       ) : (
         <>
@@ -62,9 +72,9 @@ function Router() {
           <Route path="/onboarding" component={Onboarding} />
           <Route path="/settings" component={Settings} />
           <Route path="/admin" component={AdminPanel} />
+          <Route component={NotFound} />
         </>
       )}
-      <Route component={NotFound} />
     </Switch>
   );
 }
