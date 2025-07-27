@@ -525,40 +525,60 @@ export default function DocumentManagement() {
                       <Table>
                         <TableHeader className="sticky top-0 bg-white dark:bg-gray-900 z-10">
                           <TableRow className="bg-gray-50 dark:bg-gray-800">
-                            {selectedDocument.extractedData.headers && selectedDocument.extractedData.headers.length > 0 ? (
-                              selectedDocument.extractedData.headers.map((header: string, index: number) => (
+                            {(() => {
+                              // Get all unique field names from all records to ensure we show all columns
+                              const allFields = new Set<string>();
+                              selectedDocument.extractedData.records.forEach((record: any) => {
+                                Object.keys(record).forEach(key => allFields.add(key));
+                              });
+                              
+                              // Order fields in a logical way for bank statements
+                              const fieldOrder = ['description', 'debit_amount', 'credit_amount', 'balance'];
+                              const sortedFields = Array.from(allFields).sort((a, b) => {
+                                const aIndex = fieldOrder.indexOf(a);
+                                const bIndex = fieldOrder.indexOf(b);
+                                if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+                                if (aIndex !== -1) return -1;
+                                if (bIndex !== -1) return 1;
+                                return a.localeCompare(b);
+                              });
+                              
+                              return sortedFields.map((field: string, index: number) => (
                                 <TableHead key={index} className="font-semibold text-gray-700 dark:text-gray-300">
-                                  {header.charAt(0).toUpperCase() + header.slice(1).replace(/_/g, ' ')}
+                                  {field.charAt(0).toUpperCase() + field.slice(1).replace(/_/g, ' ')}
                                 </TableHead>
-                              ))
-                            ) : (
-                              // Fallback headers based on available data
-                              Object.keys(selectedDocument.extractedData.records[0] || {}).map((key, index) => (
-                                <TableHead key={index} className="font-semibold text-gray-700 dark:text-gray-300">
-                                  {key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ')}
-                                </TableHead>
-                              ))
-                            )}
+                              ));
+                            })()}
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {selectedDocument.extractedData.records.map((record: any, index: number) => (
-                            <TableRow key={index} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                              {selectedDocument.extractedData.headers && selectedDocument.extractedData.headers.length > 0 ? (
-                                selectedDocument.extractedData.headers.map((header: string, headerIndex: number) => (
-                                  <TableCell key={headerIndex} className="text-sm">
-                                    {record[header] || record[header.toLowerCase()] || record[header.replace(/_/g, ' ')] || '-'}
+                          {selectedDocument.extractedData.records.map((record: any, index: number) => {
+                            // Get all unique fields again for consistent column ordering
+                            const allFields = new Set<string>();
+                            selectedDocument.extractedData.records.forEach((r: any) => {
+                              Object.keys(r).forEach(key => allFields.add(key));
+                            });
+                            
+                            const fieldOrder = ['description', 'debit_amount', 'credit_amount', 'balance'];
+                            const sortedFields = Array.from(allFields).sort((a, b) => {
+                              const aIndex = fieldOrder.indexOf(a);
+                              const bIndex = fieldOrder.indexOf(b);
+                              if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+                              if (aIndex !== -1) return -1;
+                              if (bIndex !== -1) return 1;
+                              return a.localeCompare(b);
+                            });
+                            
+                            return (
+                              <TableRow key={index} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                {sortedFields.map((field: string, fieldIndex: number) => (
+                                  <TableCell key={fieldIndex} className="text-sm">
+                                    {record[field] || '-'}
                                   </TableCell>
-                                ))
-                              ) : (
-                                Object.values(record).map((value: any, valueIndex: number) => (
-                                  <TableCell key={valueIndex} className="text-sm">
-                                    {value || '-'}
-                                  </TableCell>
-                                ))
-                              )}
-                            </TableRow>
-                          ))}
+                                ))}
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                       <div className="p-3 bg-gray-50 dark:bg-gray-800 text-center text-sm text-gray-600 dark:text-gray-400 border-t">
