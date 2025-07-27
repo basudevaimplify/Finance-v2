@@ -279,8 +279,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware (temporarily disabled for migration)
   // await setupAuth(app);
   
-  // Simple authentication endpoints for testing
-  app.post('/api/auth/login', async (req, res) => {
+  // Simple authentication endpoints for testing (both /auth/login and /api/auth/login for compatibility)
+  const loginHandler = async (req: any, res: any) => {
     try {
       const { email, password } = req.body;
       
@@ -344,7 +344,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Login error:', error);
       res.status(500).json({ success: false, message: 'Internal server error' });
     }
-  });
+  };
+
+  // Register login handler for both routes (frontend compatibility)
+  app.post('/api/auth/login', loginHandler);
+  app.post('/auth/login', loginHandler);
 
   app.post('/api/auth/register', async (req, res) => {
     console.log('Registration endpoint called with body:', req.body);

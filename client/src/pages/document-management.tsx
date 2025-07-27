@@ -516,14 +516,57 @@ export default function DocumentManagement() {
                   </div>
                 </div>
 
-                {selectedDocument.extractedData && (
+                {selectedDocument.extractedData && selectedDocument.extractedData.records && selectedDocument.extractedData.records.length > 0 && (
                   <div>
                     <label className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                      Extracted Data
+                      Extracted Data ({selectedDocument.extractedData.totalRecords || selectedDocument.extractedData.records.length} records)
                     </label>
-                    <pre className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded text-sm overflow-auto max-h-40">
-                      {JSON.stringify(selectedDocument.extractedData, null, 2)}
-                    </pre>
+                    <div className="mt-2 border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-gray-50 dark:bg-gray-800">
+                            {selectedDocument.extractedData.headers && selectedDocument.extractedData.headers.length > 0 ? (
+                              selectedDocument.extractedData.headers.map((header: string, index: number) => (
+                                <TableHead key={index} className="font-semibold text-gray-700 dark:text-gray-300">
+                                  {header.charAt(0).toUpperCase() + header.slice(1).replace(/_/g, ' ')}
+                                </TableHead>
+                              ))
+                            ) : (
+                              // Fallback headers based on available data
+                              Object.keys(selectedDocument.extractedData.records[0] || {}).map((key, index) => (
+                                <TableHead key={index} className="font-semibold text-gray-700 dark:text-gray-300">
+                                  {key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ')}
+                                </TableHead>
+                              ))
+                            )}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedDocument.extractedData.records.slice(0, 10).map((record: any, index: number) => (
+                            <TableRow key={index} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                              {selectedDocument.extractedData.headers && selectedDocument.extractedData.headers.length > 0 ? (
+                                selectedDocument.extractedData.headers.map((header: string, headerIndex: number) => (
+                                  <TableCell key={headerIndex} className="text-sm">
+                                    {record[header] || record[header.toLowerCase()] || record[header.replace(/_/g, ' ')] || '-'}
+                                  </TableCell>
+                                ))
+                              ) : (
+                                Object.values(record).map((value: any, valueIndex: number) => (
+                                  <TableCell key={valueIndex} className="text-sm">
+                                    {value || '-'}
+                                  </TableCell>
+                                ))
+                              )}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      {selectedDocument.extractedData.records.length > 10 && (
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800 text-center text-sm text-gray-600 dark:text-gray-400">
+                          Showing first 10 of {selectedDocument.extractedData.records.length} records
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
