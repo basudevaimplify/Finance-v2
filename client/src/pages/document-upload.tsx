@@ -110,15 +110,43 @@ export default function DocumentUpload() {
       
       // Store trial balance data if it's a trial balance generation
       if (docId === 'trial_balance') {
-        setTrialBalanceData(data);
+        console.log('Trial balance data received:', data);
+        
+        // Transform the data to match our frontend structure
+        const transformedData = {
+          ledgers: data.entries || [],
+          summary: {
+            totalDebits: data.totalDebits,
+            totalCredits: data.totalCredits,
+            isBalanced: data.isBalanced
+          },
+          metadata: {
+            reportType: data.reportType,
+            generatedFrom: data.generatedFrom,
+            compliance: data.compliance
+          }
+        };
+        
+        setTrialBalanceData(transformedData);
         setIsGeneratingTrialBalance(false);
         setActiveTab('trial-balance'); // Switch to trial balance tab
+        
+        // Prevent any navigation
+        return;
       }
       
-      toast({
-        title: "Document Generated",
-        description: `${docName} has been generated successfully. You can view it in the Financial Reports section.`,
-      });
+      // Different success message for trial balance
+      if (docId === 'trial_balance') {
+        toast({
+          title: "Trial Balance Generated",
+          description: "Trial balance has been generated successfully and is displayed above.",
+        });
+      } else {
+        toast({
+          title: "Document Generated",
+          description: `${docName} has been generated successfully. You can view it in the Financial Reports section.`,
+        });
+      }
       
     } catch (error) {
       // Reset trial balance loading state on error
@@ -1329,13 +1357,13 @@ export default function DocumentUpload() {
                           {trialBalanceData.ledgers?.map((ledger: any, index: number) => (
                             <TableRow key={index}>
                               <TableCell className="font-medium">
-                                {ledger.ledgerName || ledger.accountName || `Account ${index + 1}`}
+                                {ledger.ledgerName || `Account ${index + 1}`}
                               </TableCell>
                               <TableCell className="text-right font-mono">
-                                {ledger.debit > 0 ? `₹${ledger.debit.toLocaleString('en-IN')}` : '-'}
+                                {ledger.debit && ledger.debit > 0 ? `₹${ledger.debit.toLocaleString('en-IN')}` : '-'}
                               </TableCell>
                               <TableCell className="text-right font-mono">
-                                {ledger.credit > 0 ? `₹${ledger.credit.toLocaleString('en-IN')}` : '-'}
+                                {ledger.credit && ledger.credit > 0 ? `₹${ledger.credit.toLocaleString('en-IN')}` : '-'}
                               </TableCell>
                             </TableRow>
                           )) || []}
@@ -1355,8 +1383,8 @@ export default function DocumentUpload() {
 
                     {/* Additional Info */}
                     <div className="text-sm text-muted-foreground">
-                      <p>Generated from {trialBalanceData.metadata?.sourceDocuments || 'uploaded'} journal entries</p>
-                      <p>Compliance: Companies Act 2013, IndAS standards</p>
+                      <p>Generated from {trialBalanceData.metadata?.generatedFrom || 'uploaded journal entries'}</p>
+                      <p>Compliance: {trialBalanceData.metadata?.compliance?.join(', ') || 'Companies Act 2013, IndAS standards'}</p>
                     </div>
                   </div>
                 )}
