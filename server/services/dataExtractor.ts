@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as XLSX from 'xlsx';
 import csvParser from 'csv-parser';
 // PDF parsing will be handled by OpenAI for better accuracy
 import { openaiService, DocumentAnalysisResult } from './openaiService';
@@ -117,11 +116,17 @@ export class DataExtractorService {
         throw new Error(`Excel file not found: ${filePath}`);
       }
       
+      // Dynamic import for ES modules compatibility
+      const XLSX = await import('xlsx');
+      console.log('XLSX imported successfully');
+      
       const workbook = XLSX.readFile(filePath);
       console.log(`📊 Excel sheets found: ${workbook.SheetNames.join(', ')}`);
       
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
+      
+      console.log(`📋 Worksheet range:`, worksheet['!ref']);
       
       // Convert to JSON with header row
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
@@ -131,7 +136,14 @@ export class DataExtractorService {
       }) as any[][];
       
       console.log(`📄 Raw JSON data rows: ${jsonData.length}`);
-      console.log(`📄 First few rows:`, jsonData.slice(0, 3));
+      console.log(`📄 First few rows:`, jsonData.slice(0, 5));
+      
+      // Also try with different options
+      const jsonObjectData = XLSX.utils.sheet_to_json(worksheet) as any[];
+      console.log(`📄 Alternative extraction (objects): ${jsonObjectData.length} rows`);
+      if (jsonObjectData.length > 0) {
+        console.log(`📄 First object:`, jsonObjectData[0]);
+      }
       
       if (jsonData.length === 0) {
         throw new Error('No data found in Excel file');
