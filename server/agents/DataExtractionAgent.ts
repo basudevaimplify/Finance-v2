@@ -77,10 +77,20 @@ export class DataExtractionAgent {
 
   async extractData(filePath: string, documentType: string, mimeType: string): Promise<AgentExtractionResult> {
     try {
+      console.log(`🔍 DataExtractionAgent: Processing ${documentType} file: ${filePath}`);
+      
       // Use the new AI-enhanced data extractor
       const extractionResult = await this.dataExtractor.extractDataFromFile(filePath, documentType);
       
+      console.log(`📊 Raw extraction result:`, {
+        success: extractionResult.success,
+        dataLength: extractionResult.data?.length || 0,
+        headersLength: extractionResult.headers?.length || 0,
+        firstRecord: extractionResult.data?.[0] || 'none'
+      });
+      
       if (!extractionResult.success) {
+        console.log('❌ Extraction failed:', extractionResult.error);
         return {
           headers: [],
           records: [],
@@ -101,9 +111,27 @@ export class DataExtractionAgent {
       const mapping = this.schemaMappings[extractionResult.documentType] || this.schemaMappings[documentType];
       let finalRecords = extractionResult.data;
       
+      console.log(`🔧 Applying transformations - mapping found:`, !!mapping);
+      
       if (mapping) {
+        console.log(`📝 Before transformation:`, {
+          recordCount: finalRecords.length,
+          firstRecord: finalRecords[0] || 'none'
+        });
+        
         finalRecords = this.transformRecords(extractionResult.data, mapping);
+        
+        console.log(`📝 After transformation:`, {
+          recordCount: finalRecords.length,
+          firstRecord: finalRecords[0] || 'none'
+        });
+        
         finalRecords = this.validateRecords(finalRecords, mapping);
+        
+        console.log(`📝 After validation:`, {
+          recordCount: finalRecords.length,
+          firstRecord: finalRecords[0] || 'none'
+        });
       }
 
       return {
@@ -140,14 +168,31 @@ export class DataExtractionAgent {
   }
 
   private transformRecords(records: any[], mapping: DatabaseMapping): any[] {
-    return records.map(record => {
+    console.log(`🔄 Transforming ${records.length} records using mapping:`, mapping.columnMappings);
+    
+    return records.map((record, index) => {
+      console.log(`📝 Original record ${index + 1}:`, record);
       const transformed: any = {};
       
-      // Apply column mappings
+      // Apply column mappings with case-insensitive matching
       for (const [sourceColumn, targetColumn] of Object.entries(mapping.columnMappings)) {
-        const value = record[sourceColumn] || record[sourceColumn.toLowerCase()] || record[sourceColumn.toUpperCase()];
-        if (value !== undefined) {
+        // Try exact match first, then case variations
+        let value = record[sourceColumn];
+        
+        if (value === undefined) {
+          // Try case-insensitive matching
+          const recordKeys = Object.keys(record);
+          const matchingKey = recordKeys.find(key => key.toLowerCase() === sourceColumn.toLowerCase());
+          if (matchingKey) {
+            value = record[matchingKey];
+          }
+        }
+        
+        if (value !== undefined && value !== null && value !== '') {
           transformed[targetColumn] = value;
+          console.log(`✅ Mapped ${sourceColumn} → ${targetColumn}: ${value}`);
+        } else {
+          console.log(`❌ No value found for ${sourceColumn} (maps to ${targetColumn})`);
         }
       }
       
@@ -156,14 +201,17 @@ export class DataExtractionAgent {
         for (const [column, transformer] of Object.entries(mapping.transformations)) {
           if (transformed[column] !== undefined) {
             try {
+              const originalValue = transformed[column];
               transformed[column] = transformer(transformed[column]);
+              console.log(`🔧 Transformed ${column}: ${originalValue} → ${transformed[column]}`);
             } catch (error) {
-              console.warn(`Transformation failed for column ${column}:`, error);
+              console.warn(`❌ Transformation failed for column ${column}:`, error);
             }
           }
         }
       }
       
+      console.log(`✅ Transformed record ${index + 1}:`, transformed);
       return transformed;
     });
   }

@@ -43,12 +43,16 @@ export class DataExtractorService {
    */
   async extractDataFromFile(filePath: string, documentType: string): Promise<ExtractionResult> {
     try {
+      console.log(`🔍 Starting extraction for file: ${filePath}, type: ${documentType}`);
+      
       if (!fs.existsSync(filePath)) {
         throw new Error(`File not found: ${filePath}`);
       }
 
       const ext = path.extname(filePath).toLowerCase();
       const fileName = path.basename(filePath);
+      
+      console.log(`📄 File extension: ${ext}, filename: ${fileName}`);
       
       // First, extract raw content
       let rawResult: any;
@@ -67,38 +71,25 @@ export class DataExtractorService {
           throw new Error(`Unsupported file type: ${ext}`);
       }
 
+      console.log(`📊 Raw extraction result:`, {
+        success: rawResult.success,
+        dataLength: rawResult.data?.length || 0,
+        headersLength: rawResult.headers?.length || 0,
+        headers: rawResult.headers
+      });
+
       if (!rawResult.success) {
         return rawResult;
       }
 
-      // Enhanced AI analysis for better data extraction
-      try {
-        const contentPreview = this.generateContentPreview(rawResult.data, rawResult.headers);
-        const aiAnalysis = await openaiService.analyzeDocument(contentPreview, fileName, ext);
-        
-        // Use AI-enhanced data if available, fallback to raw data
-        const finalData = aiAnalysis.extractedData.length > 0 
-          ? aiAnalysis.extractedData 
-          : rawResult.data;
+      // Skip AI analysis for now and return raw result directly
+      console.log(`✅ Returning raw extraction result with ${rawResult.data.length} records`);
+      return {
+        ...rawResult,
+        confidence: 0.8,
+        extractionMethod: 'basic_parsing'
+      };
 
-        return {
-          success: true,
-          data: finalData,
-          headers: aiAnalysis.headers.length > 0 ? aiAnalysis.headers : rawResult.headers,
-          totalRecords: finalData.length,
-          documentType: aiAnalysis.documentType !== 'unknown' ? aiAnalysis.documentType : documentType,
-          confidence: aiAnalysis.confidence,
-          extractionMethod: aiAnalysis.extractedData.length > 0 ? 'ai_enhanced' : 'basic_parsing',
-          metadata: aiAnalysis.metadata
-        };
-      } catch (aiError) {
-        console.warn('AI analysis failed, using basic extraction:', aiError);
-        return {
-          ...rawResult,
-          confidence: 0.6,
-          extractionMethod: 'fallback'
-        };
-      }
     } catch (error) {
       console.error('Data extraction error:', error);
       return {
@@ -119,7 +110,16 @@ export class DataExtractorService {
    */
   private async extractFromExcel(filePath: string, documentType: string): Promise<ExtractionResult> {
     try {
+      console.log(`🔍 Extracting Excel file: ${filePath}`);
+      
+      // Check if file exists
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`Excel file not found: ${filePath}`);
+      }
+      
       const workbook = XLSX.readFile(filePath);
+      console.log(`📊 Excel sheets found: ${workbook.SheetNames.join(', ')}`);
+      
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
       
@@ -130,37 +130,46 @@ export class DataExtractorService {
         raw: false
       }) as any[][];
       
+      console.log(`📄 Raw JSON data rows: ${jsonData.length}`);
+      console.log(`📄 First few rows:`, jsonData.slice(0, 3));
+      
       if (jsonData.length === 0) {
         throw new Error('No data found in Excel file');
       }
 
       // First row contains headers
-      const headers = jsonData[0] as string[];
+      const headers = (jsonData[0] as string[]).filter(h => h && h.toString().trim() !== '');
+      console.log(`📋 Detected headers: ${headers.join(', ')}`);
+      
       const dataRows = jsonData.slice(1);
       
       // Convert to array of objects
       const data = dataRows
-        .filter(row => row.some(cell => cell !== '')) // Filter out empty rows
-        .map(row => {
+        .filter(row => row && row.some(cell => cell !== '' && cell !== null && cell !== undefined)) // Filter out empty rows
+        .map((row, rowIndex) => {
           const record: ExtractedDataRecord = {};
           headers.forEach((header, index) => {
             if (header) {
               record[header] = row[index] || '';
             }
           });
+          console.log(`📄 Row ${rowIndex + 1}:`, record);
           return record;
         });
+
+      console.log(`✅ Excel extraction successful: ${data.length} records extracted`);
 
       return {
         success: true,
         data,
-        headers: headers.filter(h => h), // Remove empty headers
+        headers,
         totalRecords: data.length,
         documentType,
         confidence: 0.8,
         extractionMethod: 'basic_parsing'
       };
     } catch (error) {
+      console.error(`❌ Excel extraction error:`, error);
       throw new Error(`Excel extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -173,15 +182,26 @@ export class DataExtractorService {
       const data: ExtractedDataRecord[] = [];
       let headers: string[] = [];
       
+      console.log(`🔍 Extracting CSV file: ${filePath}`);
+      
+      // Check if file exists
+      if (!fs.existsSync(filePath)) {
+        reject(new Error(`CSV file not found: ${filePath}`));
+        return;
+      }
+      
       fs.createReadStream(filePath)
         .pipe(csvParser())
         .on('headers', (headerList) => {
           headers = headerList;
+          console.log(`📋 CSV headers detected: ${headers.join(', ')}`);
         })
         .on('data', (row) => {
+          console.log(`📄 CSV row:`, row);
           data.push(row);
         })
         .on('end', () => {
+          console.log(`✅ CSV extraction successful: ${data.length} records, ${headers.length} headers`);
           resolve({
             success: true,
             data,
@@ -193,6 +213,7 @@ export class DataExtractorService {
           });
         })
         .on('error', (error) => {
+          console.error(`❌ CSV extraction error:`, error);
           reject(new Error(`CSV extraction failed: ${error.message}`));
         });
     });

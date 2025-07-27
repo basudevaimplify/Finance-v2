@@ -63,6 +63,15 @@ export class AgentOrchestrator {
           const classification = await this.classifierAgent.classifyDocument(path, fileName, mimeType);
           const extraction = await this.dataExtractionAgent.extractData(path, classification.documentType, mimeType);
 
+          console.log('🔄 Fallback extraction result:', {
+            classificationType: classification.documentType,
+            classificationConfidence: classification.confidence,
+            extractedRecords: extraction.totalRecords,
+            extractionConfidence: extraction.confidence,
+            extractedDataLength: extraction.records?.length || 0,
+            firstRecord: extraction.records?.[0] || 'none'
+          });
+          
           return {
             classificationType: classification.documentType,
             classificationConfidence: classification.confidence,
@@ -78,7 +87,9 @@ export class AgentOrchestrator {
         classificationType: aiResult.classificationType,
         classificationConfidence: aiResult.classificationConfidence,
         extractedRecords: aiResult.extractedRecords,
-        extractionConfidence: aiResult.extractionConfidence
+        extractionConfidence: aiResult.extractionConfidence,
+        extractedDataLength: aiResult.extractedData?.length || 0,
+        firstRecord: aiResult.extractedData?.[0] || 'none'
       });
 
       // Convert AI result to legacy format for compatibility

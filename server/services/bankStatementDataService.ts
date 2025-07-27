@@ -100,11 +100,15 @@ export class BankStatementDataService {
     const date = record.Date || record.date || record.transaction_date;
     const description = record.Description || record.description || '';
     const reference = record.Reference || record.reference || '';
-    const debitAmount = record['Debit Amount'] || record.debit_amount || record.debitAmount;
-    const creditAmount = record['Credit Amount'] || record.credit_amount || record.creditAmount;
+    const debitAmount = record['Debit Amount'] || record.debit_amount || record.debitAmount || record.Debit || record.debit;
+    const creditAmount = record['Credit Amount'] || record.credit_amount || record.creditAmount || record.Credit || record.credit;
     const balance = record.Balance || record.balance;
     const confidence = record.confidence || 0.85;
-    const source = record.source || 'universal_pdf_extraction';
+    const source = record.source || 'automated_extraction';
+    
+    console.log(`🔍 Processing record ${rowIndex}:`, {
+      date, description, reference, debitAmount, creditAmount, balance
+    });
 
     // Validate required fields
     if (!date) {

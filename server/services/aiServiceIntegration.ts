@@ -236,6 +236,13 @@ class AIServiceIntegration {
       console.log('🔄 Using fallback processor...');
       try {
         const fallbackResult = await fallbackProcessor(filePath);
+        console.log('📊 Fallback processor result:', {
+          classificationType: fallbackResult.classificationType,
+          extractedRecords: fallbackResult.extractedRecords,
+          extractedDataLength: fallbackResult.extractedData?.length || 0,
+          firstRecord: fallbackResult.extractedData?.[0] || 'none'
+        });
+        
         return {
           classificationType: fallbackResult.classificationType || 'other',
           classificationConfidence: fallbackResult.classificationConfidence || 0.5,
