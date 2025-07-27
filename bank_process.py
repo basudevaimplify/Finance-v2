@@ -1,20 +1,14 @@
-// Test updated Excel extraction logic
-const { exec } = require('child_process');
-const fs = require('fs');
-
-const excelFilePath = 'attached_assets/bank_statement_q1_2025_1753618813807.xlsx';
-const csvFilePath = 'bank_statement_processed.csv';
-
-// Create a Python script with bank statement specific processing
-const pythonScript = `
 import pandas as pd
 import sys
 import os
 
 try:
     # Read Excel file
-    print(f"Reading Excel file: ${excelFilePath}")
-    df = pd.read_excel('${excelFilePath}')
+    excelFilePath = 'attached_assets/bank_statement_q1_2025_1753618813807.xlsx'
+    csvFilePath = 'bank_statement_processed.csv'
+    
+    print(f"Reading Excel file: {excelFilePath}")
+    df = pd.read_excel(excelFilePath)
     
     print(f"DataFrame shape: {df.shape}")
     print(f"DataFrame columns: {list(df.columns)}")
@@ -58,20 +52,20 @@ try:
         print(data_df.head())
         
         # Convert to CSV
-        data_df.to_csv('${csvFilePath}', index=False, encoding='utf-8')
+        data_df.to_csv(csvFilePath, index=False, encoding='utf-8')
         
     else:
         print("Standard Excel format detected")
         # Standard processing for regular Excel files
         df = df.dropna(how='all', axis=0)  # Remove rows that are all NaN
         df = df.dropna(how='all', axis=1)  # Remove columns that are all NaN
-        df.to_csv('${csvFilePath}', index=False, encoding='utf-8')
+        df.to_csv(csvFilePath, index=False, encoding='utf-8')
     
     # Verify the CSV was created
-    if os.path.exists('${csvFilePath}'):
-        print(f"CSV file created successfully: ${csvFilePath}")
+    if os.path.exists(csvFilePath):
+        print(f"CSV file created successfully: {csvFilePath}")
         # Read first few lines to verify
-        with open('${csvFilePath}', 'r') as f:
+        with open(csvFilePath, 'r') as f:
             lines = f.readlines()[:8]
             print("First 8 lines of CSV:")
             for i, line in enumerate(lines):
@@ -86,43 +80,3 @@ except Exception as e:
     import traceback
     traceback.print_exc()
     sys.exit(1)
-`;
-
-// Write Python script to temporary file
-const scriptPath = 'bank_process.py';
-fs.writeFileSync(scriptPath, pythonScript);
-
-// Execute Python script
-exec(`python3 ${scriptPath}`, (error, stdout, stderr) => {
-  console.log('Python output:');
-  console.log(stdout);
-  
-  if (stderr) {
-    console.log('Python errors:');
-    console.log(stderr);
-  }
-  
-  if (error) {
-    console.error(`Execution error: ${error}`);
-  }
-  
-  // Check if CSV was created
-  if (fs.existsSync(csvFilePath)) {
-    console.log('\n=== CSV FILE CREATED SUCCESSFULLY ===');
-    const csvContent = fs.readFileSync(csvFilePath, 'utf8');
-    console.log('Full CSV content:');
-    console.log(csvContent);
-  } else {
-    console.log('CSV file was not created');
-  }
-  
-  // Clean up
-  try {
-    fs.unlinkSync(scriptPath);
-    if (fs.existsSync(csvFilePath)) {
-      fs.unlinkSync(csvFilePath);
-    }
-  } catch (cleanupError) {
-    console.warn(`Cleanup failed: ${cleanupError}`);
-  }
-});

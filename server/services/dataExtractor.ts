@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import csvParser from 'csv-parser';
+import { exec } from 'child_process';
 // PDF parsing will be handled by OpenAI for better accuracy
 import { openaiService, DocumentAnalysisResult } from './openaiService';
 
@@ -105,85 +106,175 @@ export class DataExtractorService {
   }
 
   /**
-   * Extract data from Excel files
+   * Extract data from Excel files by converting to CSV first
    */
   private async extractFromExcel(filePath: string, documentType: string): Promise<ExtractionResult> {
     try {
-      console.log(`🔍 Extracting Excel file: ${filePath}`);
+      console.log(`🔍 Converting Excel file to CSV: ${filePath}`);
       
       // Check if file exists
       if (!fs.existsSync(filePath)) {
         throw new Error(`Excel file not found: ${filePath}`);
       }
       
-      // Dynamic import for ES modules compatibility
-      const XLSX = await import('xlsx');
-      console.log('XLSX imported successfully');
+      // Convert Excel to CSV first to work around ES module issues
+      const csvFilePath = await this.convertExcelToCSV(filePath);
+      console.log(`✅ Excel converted to CSV: ${csvFilePath}`);
       
-      const workbook = XLSX.readFile(filePath);
-      console.log(`📊 Excel sheets found: ${workbook.SheetNames.join(', ')}`);
+      // Use the working CSV extraction method
+      const result = await this.extractFromCSV(csvFilePath, documentType);
       
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      
-      console.log(`📋 Worksheet range:`, worksheet['!ref']);
-      
-      // Convert to JSON with header row
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-        header: 1,
-        defval: '',
-        raw: false
-      }) as any[][];
-      
-      console.log(`📄 Raw JSON data rows: ${jsonData.length}`);
-      console.log(`📄 First few rows:`, jsonData.slice(0, 5));
-      
-      // Also try with different options
-      const jsonObjectData = XLSX.utils.sheet_to_json(worksheet) as any[];
-      console.log(`📄 Alternative extraction (objects): ${jsonObjectData.length} rows`);
-      if (jsonObjectData.length > 0) {
-        console.log(`📄 First object:`, jsonObjectData[0]);
+      // Clean up temporary CSV file
+      try {
+        if (fs.existsSync(csvFilePath)) {
+          fs.unlinkSync(csvFilePath);
+          console.log(`🗑️ Cleaned up temporary CSV file: ${csvFilePath}`);
+        }
+      } catch (cleanupError) {
+        console.warn(`⚠️ Failed to clean up temporary CSV file: ${cleanupError}`);
       }
       
-      if (jsonData.length === 0) {
-        throw new Error('No data found in Excel file');
-      }
-
-      // First row contains headers
-      const headers = (jsonData[0] as string[]).filter(h => h && h.toString().trim() !== '');
-      console.log(`📋 Detected headers: ${headers.join(', ')}`);
+      return result;
       
-      const dataRows = jsonData.slice(1);
-      
-      // Convert to array of objects
-      const data = dataRows
-        .filter(row => row && row.some(cell => cell !== '' && cell !== null && cell !== undefined)) // Filter out empty rows
-        .map((row, rowIndex) => {
-          const record: ExtractedDataRecord = {};
-          headers.forEach((header, index) => {
-            if (header) {
-              record[header] = row[index] || '';
-            }
-          });
-          console.log(`📄 Row ${rowIndex + 1}:`, record);
-          return record;
-        });
-
-      console.log(`✅ Excel extraction successful: ${data.length} records extracted`);
-
-      return {
-        success: true,
-        data,
-        headers,
-        totalRecords: data.length,
-        documentType,
-        confidence: 0.8,
-        extractionMethod: 'basic_parsing'
-      };
     } catch (error) {
       console.error(`❌ Excel extraction error:`, error);
       throw new Error(`Excel extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  /**
+   * Convert Excel file to CSV format using Node.js child process
+   */
+  private async convertExcelToCSV(excelFilePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      try {
+        
+        // Generate temporary CSV file path
+        const csvFilePath = excelFilePath.replace(/\.(xlsx|xls)$/i, '_converted.csv');
+        
+        // Create a Python script to convert Excel to CSV with bank statement specific handling
+        const pythonScript = `
+import pandas as pd
+import sys
+import os
+
+try:
+    # Read Excel file
+    print(f"Reading Excel file: ${excelFilePath}")
+    df = pd.read_excel('${excelFilePath}')
+    
+    print(f"DataFrame shape: {df.shape}")
+    print(f"DataFrame columns: {list(df.columns)}")
+    
+    # Special handling for bank statements with this structure
+    # Check if this is a bank statement with account details in first column
+    if df.shape[1] >= 4 and 'Account Holder' in str(df.columns[0]):
+        print("Detected bank statement format with account details header")
+        
+        # The actual data is in the "Unnamed" columns, not the first column
+        # Extract just the unnamed columns which contain the real data
+        unnamed_cols = [col for col in df.columns if 'Unnamed' in str(col)]
+        
+        if unnamed_cols:
+            print(f"Found {len(unnamed_cols)} unnamed data columns")
+            # Create a new dataframe with just the data columns
+            data_df = df[unnamed_cols].copy()
+            
+            # The first row should contain the actual headers
+            if len(data_df) > 0:
+                # Use first row as headers if it contains text like 'Date', 'Description', etc.
+                first_row = data_df.iloc[0]
+                if any(str(cell).lower().strip() in ['date', 'description', 'credit', 'debit', 'balance'] for cell in first_row):
+                    print("Using first data row as headers")
+                    headers = [str(cell).strip() if pd.notna(cell) else f'Column_{i}' for i, cell in enumerate(first_row)]
+                    data_df = data_df.iloc[1:].copy()  # Skip header row
+                    data_df.columns = headers
+                else:
+                    # Generic column names
+                    data_df.columns = [f'Column_{i}' for i in range(len(data_df.columns))]
+            else:
+                data_df.columns = [f'Column_{i}' for i in range(len(data_df.columns))]
+        else:
+            # Fallback: use current structure  
+            data_df = df.copy()
+        
+        # Clean the column names
+        data_df.columns = [str(col).strip() if pd.notna(col) else f'Column_{i}' for i, col in enumerate(data_df.columns)]
+        
+        # Remove completely empty rows and columns
+        data_df = data_df.dropna(how='all', axis=0)  # Remove rows that are all NaN
+        data_df = data_df.dropna(how='all', axis=1)  # Remove columns that are all NaN
+        
+        print(f"Processed bank statement - shape: {data_df.shape}")
+        print(f"Headers: {list(data_df.columns)}")
+        print("Sample data:")
+        print(data_df.head())
+        
+        # Convert to CSV
+        data_df.to_csv('${csvFilePath}', index=False, encoding='utf-8')
+        
+    else:
+        print("Standard Excel format detected")
+        # Standard processing for regular Excel files
+        df = df.dropna(how='all', axis=0)  # Remove rows that are all NaN
+        df = df.dropna(how='all', axis=1)  # Remove columns that are all NaN
+        df.to_csv('${csvFilePath}', index=False, encoding='utf-8')
+    
+    # Verify the CSV was created
+    if os.path.exists('${csvFilePath}'):
+        print(f"CSV file created successfully: ${csvFilePath}")
+        # Read first few lines to verify
+        with open('${csvFilePath}', 'r') as f:
+            lines = f.readlines()[:5]
+            print("First 5 lines of CSV:")
+            for i, line in enumerate(lines):
+                print(f"Line {i+1}: {line.strip()}")
+        print("SUCCESS")
+    else:
+        print("ERROR: CSV file was not created")
+        sys.exit(1)
+        
+except Exception as e:
+    print(f"ERROR: {str(e)}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+`;
+
+        // Write Python script to temporary file
+        const scriptPath = excelFilePath.replace(/\.(xlsx|xls)$/i, '_convert.py');
+        fs.writeFileSync(scriptPath, pythonScript);
+        
+        // Execute Python script
+        exec(`python3 ${scriptPath}`, (error, stdout, stderr) => {
+          // Clean up script file
+          try {
+            fs.unlinkSync(scriptPath);
+          } catch (cleanupError) {
+            console.warn(`Failed to clean up script file: ${cleanupError}`);
+          }
+          
+          if (error) {
+            console.error(`Python conversion error: ${error}`);
+            reject(new Error(`Excel to CSV conversion failed: ${error.message}`));
+            return;
+          }
+          
+          if (stderr) {
+            console.warn(`Python conversion warning: ${stderr}`);
+          }
+          
+          if (stdout.includes('SUCCESS') && fs.existsSync(csvFilePath)) {
+            resolve(csvFilePath);
+          } else {
+            reject(new Error(`Excel to CSV conversion failed: ${stdout}`));
+          }
+        });
+        
+      } catch (error) {
+        reject(new Error(`Failed to setup Excel conversion: ${error instanceof Error ? error.message : 'Unknown error'}`));
+      }
+    });
   }
 
   /**

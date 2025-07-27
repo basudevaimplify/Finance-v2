@@ -1,105 +1,93 @@
-const XLSX = require('xlsx');
+// Test Excel extraction directly
+const { exec } = require('child_process');
 const fs = require('fs');
-const path = require('path');
 
-class TestDataExtractor {
-  async extractFromExcel(filePath, documentType) {
-    try {
-      console.log(`\n=== Testing Excel extraction ===`);
-      console.log(`File: ${path.basename(filePath)}`);
-      console.log(`Type: ${documentType}`);
-      
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`File not found: ${filePath}`);
-      }
+const excelFilePath = 'attached_assets/bank_statement_q1_2025_1753618813807.xlsx';
+const csvFilePath = 'test_output.csv';
 
-      const workbook = XLSX.readFile(filePath);
-      console.log(`Sheet names: ${workbook.SheetNames.join(', ')}`);
-      
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      
-      // Convert to JSON with header row
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-        header: 1,
-        defval: '',
-        raw: false
-      });
-      
-      console.log(`Total rows in sheet: ${jsonData.length}`);
-      
-      if (jsonData.length === 0) {
-        throw new Error('No data found in Excel file');
-      }
+// Create a Python script to convert Excel to CSV
+const pythonScript = `
+import pandas as pd
+import sys
+import os
 
-      // First row contains headers
-      const headers = jsonData[0].filter(h => h); // Remove empty headers
-      const dataRows = jsonData.slice(1);
-      
-      console.log(`Headers: ${headers.join(', ')}`);
-      console.log(`Data rows: ${dataRows.length}`);
-      
-      // Convert to array of objects
-      const data = dataRows
-        .filter(row => row.some(cell => cell !== '')) // Filter out empty rows
-        .map(row => {
-          const record = {};
-          headers.forEach((header, index) => {
-            if (header) {
-              record[header] = row[index] || '';
-            }
-          });
-          return record;
-        });
+try:
+    # Read Excel file
+    print(f"Reading Excel file: ${excelFilePath}")
+    df = pd.read_excel('${excelFilePath}')
+    
+    print(f"DataFrame shape: {df.shape}")
+    print(f"DataFrame columns: {list(df.columns)}")
+    print("First few rows:")
+    print(df.head())
+    
+    # Clean column names - remove any null/nan columns
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    df = df.dropna(how='all', axis=1)  # Remove columns that are all NaN
+    df = df.dropna(how='all', axis=0)  # Remove rows that are all NaN
+    
+    print(f"After cleaning - shape: {df.shape}")
+    print(f"After cleaning - columns: {list(df.columns)}")
+    
+    # Convert to CSV with explicit parameters
+    df.to_csv('${csvFilePath}', index=False, encoding='utf-8')
+    
+    # Verify the CSV was created
+    if os.path.exists('${csvFilePath}'):
+        print(f"CSV file created successfully: ${csvFilePath}")
+        # Read first few lines to verify
+        with open('${csvFilePath}', 'r') as f:
+            lines = f.readlines()[:5]
+            print("First 5 lines of CSV:")
+            for i, line in enumerate(lines):
+                print(f"Line {i+1}: {line.strip()}")
+        print("SUCCESS")
+    else:
+        print("ERROR: CSV file was not created")
+        sys.exit(1)
+        
+except Exception as e:
+    print(f"ERROR: {str(e)}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+`;
 
-      console.log(`Records after filtering: ${data.length}`);
-      
-      if (data.length > 0) {
-        console.log(`Sample record:`, JSON.stringify(data[0], null, 2));
-      }
+// Write Python script to temporary file
+const scriptPath = 'test_convert.py';
+fs.writeFileSync(scriptPath, pythonScript);
 
-      return {
-        success: true,
-        data,
-        headers,
-        totalRecords: data.length,
-        documentType,
-        confidence: 0.8,
-        extractionMethod: 'basic_parsing'
-      };
-    } catch (error) {
-      console.error(`Excel extraction failed:`, error.message);
-      return { 
-        success: false, 
-        error: error.message,
-        data: [],
-        headers: [],
-        totalRecords: 0,
-        documentType,
-        confidence: 0,
-        extractionMethod: 'failed'
-      };
-    }
+// Execute Python script
+exec(`python3 ${scriptPath}`, (error, stdout, stderr) => {
+  console.log('Python output:');
+  console.log(stdout);
+  
+  if (stderr) {
+    console.log('Python errors:');
+    console.log(stderr);
   }
-}
-
-async function testBothFiles() {
-  const extractor = new TestDataExtractor();
   
-  const salesFile = '/home/runner/workspace/uploads/Fw9WGWU0qdPMi7f_4TdUv_Gz2AkAcAvOy4z3at4ZjUu_sales_register_q1_2025.xlsx';
-  const purchaseFile = '/home/runner/workspace/uploads/DtalFYR1_TYiLGEmfq7p6_C6vNCEOAKuGZzsNz9EnsH_purchase_register_q1_2025.xlsx';
+  if (error) {
+    console.error(`Execution error: ${error}`);
+  }
   
-  // Test sales file
-  console.log('\n🔍 TESTING SALES REGISTER:');
-  const salesResult = await extractor.extractFromExcel(salesFile, 'sales_register');
+  // Check if CSV was created
+  if (fs.existsSync(csvFilePath)) {
+    console.log('\nCSV file created successfully!');
+    const csvContent = fs.readFileSync(csvFilePath, 'utf8');
+    console.log('CSV content:');
+    console.log(csvContent.split('\n').slice(0, 10).join('\n'));
+  } else {
+    console.log('CSV file was not created');
+  }
   
-  // Test purchase file
-  console.log('\n🔍 TESTING PURCHASE REGISTER:');
-  const purchaseResult = await extractor.extractFromExcel(purchaseFile, 'purchase_register');
-  
-  console.log('\n📊 SUMMARY:');
-  console.log(`Sales: ${salesResult.success ? salesResult.totalRecords + ' records' : 'FAILED - ' + salesResult.error}`);
-  console.log(`Purchase: ${purchaseResult.success ? purchaseResult.totalRecords + ' records' : 'FAILED - ' + purchaseResult.error}`);
-}
-
-testBothFiles().catch(console.error);
+  // Clean up
+  try {
+    fs.unlinkSync(scriptPath);
+    if (fs.existsSync(csvFilePath)) {
+      fs.unlinkSync(csvFilePath);
+    }
+  } catch (cleanupError) {
+    console.warn(`Cleanup failed: ${cleanupError}`);
+  }
+});
