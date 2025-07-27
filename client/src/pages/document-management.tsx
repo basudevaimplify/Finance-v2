@@ -118,8 +118,8 @@ export default function DocumentManagement() {
     ];
 
     // Determine data source based on document properties
-    const fileName = document.originalName.toLowerCase();
-    const documentType = document.documentType;
+    const fileName = document.originalName?.toLowerCase() || '';
+    const documentType = document.documentType || '';
     
     // Logic to determine data source based on file patterns or metadata
     if (fileName.includes('sap') || fileName.includes('_sap_')) {
@@ -130,7 +130,7 @@ export default function DocumentManagement() {
       return dataSources.find(ds => ds.id === 'tally') || dataSources[0];
     } else if (fileName.includes('quickbooks') || fileName.includes('_qb_')) {
       return dataSources.find(ds => ds.id === 'quickbooks') || dataSources[0];
-    } else if (fileName.includes('api') || document.extractedData?.source === 'api') {
+    } else if (fileName.includes('api') || (document.extractedData && typeof document.extractedData === 'object' && 'source' in document.extractedData && (document.extractedData as any).source === 'api')) {
       return dataSources.find(ds => ds.id === 'api') || dataSources[0];
     } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
       return dataSources.find(ds => ds.id === 'excel') || dataSources[0];
@@ -346,7 +346,7 @@ export default function DocumentManagement() {
                           <TableCell>
                             <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
                               <Calendar className="h-3 w-3" />
-                              {format(new Date(document.createdAt), 'MMM dd, yyyy')}
+                              {document.createdAt ? format(new Date(document.createdAt), 'MMM dd, yyyy') : 'N/A'}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -445,7 +445,7 @@ export default function DocumentManagement() {
                       Document Type
                     </label>
                     <p className="text-gray-900 dark:text-white">
-                      {getDocumentTypeName(selectedDocument.documentType)}
+                      {getDocumentTypeName(selectedDocument.documentType || '')}
                     </p>
                   </div>
                 </div>
@@ -503,7 +503,7 @@ export default function DocumentManagement() {
                       Uploaded
                     </label>
                     <p className="text-gray-900 dark:text-white">
-                      {format(new Date(selectedDocument.createdAt), 'MMM dd, yyyy HH:mm')}
+                      {selectedDocument.createdAt ? format(new Date(selectedDocument.createdAt), 'MMM dd, yyyy HH:mm') : 'N/A'}
                     </p>
                   </div>
                   <div>
@@ -511,15 +511,19 @@ export default function DocumentManagement() {
                       Last Updated
                     </label>
                     <p className="text-gray-900 dark:text-white">
-                      {format(new Date(selectedDocument.updatedAt), 'MMM dd, yyyy HH:mm')}
+                      {selectedDocument.updatedAt ? format(new Date(selectedDocument.updatedAt), 'MMM dd, yyyy HH:mm') : 'N/A'}
                     </p>
                   </div>
                 </div>
 
-                {selectedDocument.extractedData && selectedDocument.extractedData.records && selectedDocument.extractedData.records.length > 0 && (
+                {selectedDocument.extractedData && 
+                 typeof selectedDocument.extractedData === 'object' && 
+                 'records' in selectedDocument.extractedData && 
+                 Array.isArray((selectedDocument.extractedData as any).records) && 
+                 (selectedDocument.extractedData as any).records.length > 0 && (
                   <div>
                     <label className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                      Extracted Data ({selectedDocument.extractedData.totalRecords || selectedDocument.extractedData.records.length} records)
+                      Extracted Data ({(selectedDocument.extractedData as any).totalRecords || (selectedDocument.extractedData as any).records.length} records)
                     </label>
                     <div className="mt-2 border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
                       <Table>
@@ -528,7 +532,7 @@ export default function DocumentManagement() {
                             {(() => {
                               // Get all unique field names from all records to ensure we show all columns
                               const allFields = new Set<string>();
-                              selectedDocument.extractedData.records.forEach((record: any) => {
+                              (selectedDocument.extractedData as any).records.forEach((record: any) => {
                                 Object.keys(record).forEach(key => allFields.add(key));
                               });
                               
@@ -552,10 +556,10 @@ export default function DocumentManagement() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {selectedDocument.extractedData.records.map((record: any, index: number) => {
+                          {(selectedDocument.extractedData as any).records.map((record: any, index: number) => {
                             // Get all unique fields again for consistent column ordering
                             const allFields = new Set<string>();
-                            selectedDocument.extractedData.records.forEach((r: any) => {
+                            (selectedDocument.extractedData as any).records.forEach((r: any) => {
                               Object.keys(r).forEach(key => allFields.add(key));
                             });
                             
@@ -582,7 +586,7 @@ export default function DocumentManagement() {
                         </TableBody>
                       </Table>
                       <div className="p-3 bg-gray-50 dark:bg-gray-800 text-center text-sm text-gray-600 dark:text-gray-400 border-t">
-                        Showing all {selectedDocument.extractedData.records.length} records
+                        Showing all {(selectedDocument.extractedData as any).records.length} records
                       </div>
                     </div>
                   </div>
