@@ -523,7 +523,7 @@ export default function DocumentManagement() {
                     </label>
                     <div className="mt-2 border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
                       <Table>
-                        <TableHeader>
+                        <TableHeader className="sticky top-0 bg-white dark:bg-gray-900 z-10">
                           <TableRow className="bg-gray-50 dark:bg-gray-800">
                             {selectedDocument.extractedData.headers && selectedDocument.extractedData.headers.length > 0 ? (
                               selectedDocument.extractedData.headers.map((header: string, index: number) => (
@@ -542,7 +542,7 @@ export default function DocumentManagement() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {selectedDocument.extractedData.records.slice(0, 10).map((record: any, index: number) => (
+                          {selectedDocument.extractedData.records.map((record: any, index: number) => (
                             <TableRow key={index} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                               {selectedDocument.extractedData.headers && selectedDocument.extractedData.headers.length > 0 ? (
                                 selectedDocument.extractedData.headers.map((header: string, headerIndex: number) => (
@@ -561,11 +561,9 @@ export default function DocumentManagement() {
                           ))}
                         </TableBody>
                       </Table>
-                      {selectedDocument.extractedData.records.length > 10 && (
-                        <div className="p-3 bg-gray-50 dark:bg-gray-800 text-center text-sm text-gray-600 dark:text-gray-400">
-                          Showing first 10 of {selectedDocument.extractedData.records.length} records
-                        </div>
-                      )}
+                      <div className="p-3 bg-gray-50 dark:bg-gray-800 text-center text-sm text-gray-600 dark:text-gray-400 border-t">
+                        Showing all {selectedDocument.extractedData.records.length} records
+                      </div>
                     </div>
                   </div>
                 )}
