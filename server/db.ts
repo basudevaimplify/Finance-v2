@@ -31,7 +31,9 @@ function parseConnectionString(connectionString: string) {
       // Add connection pool settings for better reliability
       max: 20, // Maximum number of clients in the pool
       idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-      connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
+      connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection could not be established
+      acquireTimeoutMillis: 60000, // Wait 60 seconds for an available connection
+      statementTimeout: 30000, // Maximum time for a query to complete (30 seconds)
     };
   } catch (error) {
     console.error('Failed to parse DATABASE_URL:', error);
