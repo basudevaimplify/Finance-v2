@@ -10,6 +10,7 @@ import DocumentUpload from "@/pages/document-upload";
 import DocumentManagement from "@/pages/document-management";
 import AgentWorkflows from "@/pages/agent-workflows";
 import FinancialReports from "@/pages/financial-reports";
+import JournalEntries from "@/pages/journal-entries";
 import Compliance from "@/pages/compliance";
 import AuditTrail from "@/pages/audit-trail";
 import Reconciliation from "@/pages/reconciliation";
@@ -48,6 +49,7 @@ function Router() {
           <Route path="/workflows" component={AgentWorkflows} />
           <Route path="/reports" component={FinancialReports} />
           <Route path="/financial-reports" component={FinancialReports} />
+          <Route path="/journal-entries" component={JournalEntries} />
           <Route path="/compliance" component={Compliance} />
           <Route path="/audit" component={AuditTrail} />
           <Route path="/reconciliation" component={Reconciliation} />

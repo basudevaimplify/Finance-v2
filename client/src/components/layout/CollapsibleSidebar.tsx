@@ -40,6 +40,7 @@ const navItems: NavItem[] = [
   { name: 'Agent Chat', href: '/agent-chat', icon: MessageSquare, description: 'Chat with AI agents' },
   { name: 'Agent Workflows', href: '/workflows', icon: Bot, description: 'Manage AI workflows' },
   { name: 'Financial Reports', href: '/reports', icon: BarChart3, description: 'Generate financial reports' },
+  { name: 'Journal Entries', href: '/journal-entries', icon: BookOpen, description: 'View and generate journal entries' },
   { name: 'Reconciliation', href: '/reconciliation', icon: GitBranch, description: 'Reconcile transactions' },
   { name: 'Data Tables', href: '/data-tables', icon: FileSpreadsheet, description: 'View data tables' },
   { name: 'Compliance', href: '/compliance', icon: Shield, description: 'Compliance management' },

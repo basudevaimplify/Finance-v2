@@ -15,7 +15,8 @@ import {
   Brain,
   BookOpen,
   Database,
-  Building2
+  Building2,
+  BookIcon
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -27,6 +28,7 @@ const navigation = [
   { name: "Document Management", href: "/document-management", icon: FolderOpen },
   { name: "Agent Workflows", href: "/workflows", icon: Bot },
   { name: "Financial Reports", href: "/reports", icon: FileText },
+  { name: "Journal Entries", href: "/journal-entries", icon: BookIcon },
   { name: "Compliance", href: "/compliance", icon: Shield },
   { name: "Compliance Tutorial", href: "/compliance-tutorial", icon: BookOpen },
   { name: "Audit Trail", href: "/audit", icon: History },

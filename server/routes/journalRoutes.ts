@@ -109,14 +109,14 @@ router.get('/', noAuth, async (req: any, res) => {
     // Transform entries to match expected format
     const formattedEntries = journalEntries.map(entry => ({
       id: entry.id,
-      entryDate: entry.entryDate || entry.createdAt,
-      description: entry.description,
-      debitAccount: entry.debitAccount,
-      creditAccount: entry.creditAccount,
-      amount: entry.amount,
-      reference: entry.reference || '',
-      documentType: entry.documentType || 'system_generated',
-      sourceDocument: entry.sourceDocument || 'System Generated',
+      entryDate: entry.date || entry.createdAt,
+      description: entry.narration,
+      debitAccount: entry.debitAmount && entry.debitAmount !== '0.00' ? entry.accountName : '',
+      creditAccount: entry.creditAmount && entry.creditAmount !== '0.00' ? entry.accountName : '',
+      amount: entry.debitAmount && entry.debitAmount !== '0.00' ? parseFloat(entry.debitAmount) : parseFloat(entry.creditAmount || '0'),
+      reference: entry.journalId || '',
+      documentType: 'system_generated',
+      sourceDocument: 'System Generated',
       createdAt: entry.createdAt,
       createdBy: entry.createdBy
     }));

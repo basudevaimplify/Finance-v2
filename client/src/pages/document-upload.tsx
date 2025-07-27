@@ -71,7 +71,7 @@ export default function DocumentUpload() {
           endpoint = '/api/reports/depreciation-schedule';
           break;
         case 'journal_entries':
-          endpoint = '/api/journal-entries/generate';
+          endpoint = '/api/journal/generate';
           break;
         case 'bank_reconciliation':
           endpoint = '/api/reports/bank-reconciliation';

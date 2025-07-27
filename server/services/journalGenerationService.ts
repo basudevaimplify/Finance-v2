@@ -65,7 +65,8 @@ class JournalGenerationService {
           
         } catch (error) {
           console.error(`Error processing document ${document.id}:`, error);
-          errors.push(`Failed to process ${document.originalName}: ${error.message}`);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          errors.push(`Failed to process ${document.originalName}: ${errorMessage}`);
         }
       }
 
@@ -79,12 +80,13 @@ class JournalGenerationService {
 
     } catch (error) {
       console.error('Error in journal generation service:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         success: false,
         totalEntries: 0,
         documentsProcessed: 0,
         entries: [],
-        errors: [error.message]
+        errors: [errorMessage]
       };
     }
   }
@@ -151,8 +153,9 @@ class JournalGenerationService {
       });
 
       // Create debit entry
+      const debitJournalId = `${journalId}-DR`;
       const debitEntry = {
-        journalId: journalId,
+        journalId: debitJournalId,
         date: new Date(aiEntry.entryDate),
         accountCode: aiEntry.debitAccount.replace(/\s+/g, '_').toUpperCase(),
         accountName: aiEntry.debitAccount,
@@ -169,8 +172,9 @@ class JournalGenerationService {
       await storage.createJournalEntry(debitEntry);
 
       // Create corresponding credit entry  
+      const creditJournalId = `${journalId}-CR`;
       const creditEntry = {
-        journalId: `${journalId}-CR`,
+        journalId: creditJournalId,
         date: new Date(aiEntry.entryDate),
         accountCode: aiEntry.creditAccount.replace(/\s+/g, '_').toUpperCase(),
         accountName: aiEntry.creditAccount,
@@ -236,13 +240,13 @@ Generate maximum 5 entries. Use 2025-01-15 as default date.`;
       
       // Create CSV rows
       const csvRows = journalEntries.map(entry => {
-        const date = new Date(entry.entryDate || entry.createdAt).toISOString().split('T')[0];
-        const description = `"${(entry.description || '').replace(/"/g, '""')}"`;
-        const debitAccount = `"${(entry.debitAccount || '').replace(/"/g, '""')}"`;
-        const creditAccount = `"${(entry.creditAccount || '').replace(/"/g, '""')}"`;
-        const amount = entry.amount || 0;
-        const sourceDocument = `"${(entry.sourceDocument || 'System Generated').replace(/"/g, '""')}"`;
-        const reference = `"${(entry.reference || '').replace(/"/g, '""')}"`;
+        const date = new Date(entry.date || entry.createdAt || new Date()).toISOString().split('T')[0];
+        const description = `"${(entry.narration || '').replace(/"/g, '""')}"`;
+        const debitAccount = entry.debitAmount && entry.debitAmount !== '0.00' ? `"${entry.accountName}"` : `""`;
+        const creditAccount = entry.creditAmount && entry.creditAmount !== '0.00' ? `"${entry.accountName}"` : `""`;
+        const amount = entry.debitAmount && entry.debitAmount !== '0.00' ? entry.debitAmount : entry.creditAmount || '0.00';
+        const sourceDocument = `"System Generated"`;
+        const reference = `"${entry.journalId || ''}"`;
         
         return `${date},${description},${debitAccount},${creditAccount},${amount},${sourceDocument},${reference}`;
       }).join('\n');
@@ -251,7 +255,8 @@ Generate maximum 5 entries. Use 2025-01-15 as default date.`;
       
     } catch (error) {
       console.error('Error generating CSV report:', error);
-      throw new Error(`Failed to generate CSV report: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to generate CSV report: ${errorMessage}`);
     }
   }
 }
