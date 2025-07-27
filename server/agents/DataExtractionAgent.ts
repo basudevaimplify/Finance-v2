@@ -107,32 +107,34 @@ export class DataExtractionAgent {
         };
       }
 
-      // Transform data using schema mappings if available
-      const mapping = this.schemaMappings[extractionResult.documentType] || this.schemaMappings[documentType];
+      // For rich CSV data, preserve all original columns without restrictive mapping
       let finalRecords = extractionResult.data;
       
-      console.log(`🔧 Applying transformations - mapping found:`, !!mapping);
+      console.log(`🔧 Processing ${finalRecords.length} records with ${extractionResult.headers.length} columns`);
+      console.log(`📋 Original headers:`, extractionResult.headers);
+      console.log(`📝 Sample record before processing:`, finalRecords[0] || 'none');
       
-      if (mapping) {
-        console.log(`📝 Before transformation:`, {
-          recordCount: finalRecords.length,
-          firstRecord: finalRecords[0] || 'none'
-        });
-        
+      // Only apply minimal mapping for backward compatibility, but preserve all data
+      const mapping = this.schemaMappings[extractionResult.documentType] || this.schemaMappings[documentType];
+      
+      if (mapping && extractionResult.headers.length <= 5) {
+        // Only apply restrictive mapping for simple files (5 columns or less)
+        console.log(`📝 Applying restrictive mapping to simple file with ${extractionResult.headers.length} columns`);
         finalRecords = this.transformRecords(extractionResult.data, mapping);
-        
-        console.log(`📝 After transformation:`, {
-          recordCount: finalRecords.length,
-          firstRecord: finalRecords[0] || 'none'
-        });
-        
         finalRecords = this.validateRecords(finalRecords, mapping);
-        
-        console.log(`📝 After validation:`, {
-          recordCount: finalRecords.length,
-          firstRecord: finalRecords[0] || 'none'
-        });
+      } else {
+        // For rich CSV files with many columns, preserve all data and add standard mappings
+        console.log(`📝 Preserving all data for rich file with ${extractionResult.headers.length} columns`);
+        if (mapping) {
+          finalRecords = this.addStandardMappings(extractionResult.data, mapping);
+        }
       }
+      
+      console.log(`📝 Final processing result:`, {
+        recordCount: finalRecords.length,
+        columnCount: Object.keys(finalRecords[0] || {}).length,
+        sampleRecord: finalRecords[0] || 'none'
+      });
 
       return {
         headers: extractionResult.headers,
@@ -172,9 +174,11 @@ export class DataExtractionAgent {
     
     return records.map((record, index) => {
       console.log(`📝 Original record ${index + 1}:`, record);
-      const transformed: any = {};
       
-      // Apply column mappings with case-insensitive matching
+      // PRESERVE ALL ORIGINAL COLUMNS - don't lose any data
+      const transformed: any = { ...record };
+      
+      // Apply column mappings with case-insensitive matching (ADD mapped columns, don't replace)
       for (const [sourceColumn, targetColumn] of Object.entries(mapping.columnMappings)) {
         // Try exact match first, then case variations
         let value = record[sourceColumn];
@@ -189,6 +193,7 @@ export class DataExtractionAgent {
         }
         
         if (value !== undefined && value !== null && value !== '') {
+          // Add mapped column (keep original too)
           transformed[targetColumn] = value;
           console.log(`✅ Mapped ${sourceColumn} → ${targetColumn}: ${value}`);
         } else {
@@ -211,8 +216,39 @@ export class DataExtractionAgent {
         }
       }
       
-      console.log(`✅ Transformed record ${index + 1}:`, transformed);
+      console.log(`✅ Transformed record ${index + 1} (preserving ${Object.keys(record).length} original + ${Object.keys(mapping.columnMappings).length} mapped columns):`, transformed);
       return transformed;
+    });
+  }
+
+  private addStandardMappings(records: any[], mapping: DatabaseMapping): any[] {
+    console.log(`🔄 Adding standard mappings to ${records.length} records while preserving all data`);
+    
+    return records.map((record, index) => {
+      // Start with all original data preserved
+      const enhanced: any = { ...record };
+      
+      // Add standard mappings for common fields (but keep originals)
+      for (const [sourceColumn, targetColumn] of Object.entries(mapping.columnMappings)) {
+        // Try exact match first, then case-insensitive matching
+        let value = record[sourceColumn];
+        
+        if (value === undefined) {
+          const recordKeys = Object.keys(record);
+          const matchingKey = recordKeys.find(key => key.toLowerCase() === sourceColumn.toLowerCase());
+          if (matchingKey) {
+            value = record[matchingKey];
+          }
+        }
+        
+        if (value !== undefined && value !== null && value !== '') {
+          enhanced[targetColumn] = value;
+          console.log(`✅ Added mapping ${sourceColumn} → ${targetColumn}: ${value}`);
+        }
+      }
+      
+      console.log(`✅ Enhanced record ${index + 1}: ${Object.keys(record).length} original + ${Object.keys(mapping.columnMappings).length} mapped = ${Object.keys(enhanced).length} total columns`);
+      return enhanced;
     });
   }
 
