@@ -13,11 +13,12 @@ Preferred communication style: Simple, everyday language.
 - **Migration to Replit Environment Complete (July 27, 2025)**: **COMPLETED** - Successfully migrated project from Replit Agent to standard Replit environment:
   - **PostgreSQL Database**: Created and configured new PostgreSQL database with proper connection
   - **Database Schema**: Successfully pushed all tables and relations to new database
-  - **Demo User Setup**: Created demo user and tenant for testing and development
+  - **Demo User Setup**: Created demo user (`test@example.com`/`password`) and tenant for testing and development
   - **Foreign Key Fix**: Resolved document upload foreign key constraint violations
-  - **Authentication Working**: User authentication endpoints functional
+  - **Authentication Working**: User authentication endpoints functional with JWT token generation
   - **Document Upload**: Verified document upload pipeline working with CSV, Excel, and PDF support
-  - **AI Agent Pipeline**: Agent orchestration and data extraction working properly
+  - **AI Service Integration**: Fixed AI service to use direct OpenAI API instead of external FastAPI microservice
+  - **OpenAI API Configuration**: Successfully configured OpenAI API key via Replit Secrets for AI-powered processing
   - **CSV/Excel Extraction Fix**: Fixed critical field mapping issue where CSV data extraction was failing due to column name mismatches - system now properly extracts and stores all financial records with correct field mapping
   - **Development Ready**: Application running successfully on port 5000 with full functionality
   - **Security**: Proper client/server separation and robust security practices implemented
