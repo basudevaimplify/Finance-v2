@@ -1,15 +1,15 @@
-modules = ["nodejs-20", "python-3.11", "bash", "web", "postgresql-16"]
+modules = ["python-3.12", "nodejs-20", "c-clang14", "cpp-clang14"]
 run = "npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
-channel = "stable-24_05"
+channel = "stable-25_05"
 packages = ["file", "glibcLocales", "libxcrypt", "pkg-config", "xsimd"]
 
 [deployment]
 deploymentTarget = "autoscale"
-build = ["npm", "run", "build"]
 run = ["npm", "run", "start"]
+build = ["npm", "run", "build"]
 
 [workflows]
 runButton = "Project"
