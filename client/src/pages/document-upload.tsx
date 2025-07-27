@@ -270,6 +270,11 @@ export default function DocumentUpload() {
   };
 
   const handleDownload = async (docId: string, docName: string) => {
+    console.log('handleDownload called:', { docId, docName });
+    
+    // Set API operation flag to prevent authentication redirects
+    apiOperationRef.current = true;
+    
     toast({
       title: "Download Document",
       description: `Downloading ${docName}...`,
@@ -323,6 +328,9 @@ export default function DocumentUpload() {
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
             
+            // Reset API operation flag
+            apiOperationRef.current = false;
+            
             toast({
               title: "Download Complete",
               description: "Trial Balance CSV downloaded successfully",
@@ -358,6 +366,9 @@ export default function DocumentUpload() {
           a.click();
           window.URL.revokeObjectURL(url);
           document.body.removeChild(a);
+          
+          // Reset API operation flag
+          apiOperationRef.current = false;
           
           toast({
             title: "Download Complete",
@@ -400,12 +411,18 @@ export default function DocumentUpload() {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
       
+      // Reset API operation flag
+      apiOperationRef.current = false;
+      
       toast({
         title: "Download Complete",
         description: `${docName} has been downloaded successfully.`,
       });
       
     } catch (error) {
+      // Reset API operation flag on error
+      apiOperationRef.current = false;
+      
       toast({
         title: "Download Failed",
         description: `Failed to download ${docName}. Please try again.`,
@@ -1301,10 +1318,15 @@ export default function DocumentUpload() {
                       {isGeneratingTrialBalance ? 'Generating...' : 'Generate'}
                     </Button>
                     <Button
-                      onClick={() => handleDownload('trial_balance', 'Trial Balance')}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleDownload('trial_balance', 'Trial Balance');
+                      }}
                       disabled={!trialBalanceData}
                       variant="outline"
                       size="sm"
+                      type="button"
                     >
                       <Download className="h-4 w-4 mr-1" />
                       Download CSV
