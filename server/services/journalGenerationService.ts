@@ -138,36 +138,53 @@ class JournalGenerationService {
         createdAt: new Date()
       };
 
-      // Save to database - map to correct schema fields
+      // Generate unique journal ID
       const journalId = `JE-${nanoid()}`;
-      await storage.createJournalEntry({
-        journalId: journalId,
-        date: new Date(journalEntry.entryDate),
-        accountCode: journalEntry.debitAccount.replace(/\s+/g, '_').toUpperCase(),
-        accountName: journalEntry.debitAccount,
-        debitAmount: journalEntry.amount.toString(),
-        creditAmount: "0",
-        narration: journalEntry.description,
-        entity: 'Default',
-        documentId: document.id,
-        tenantId,
-        createdBy: userId
+      
+      console.log('Creating journal entry with data:', {
+        journalId,
+        entryDate: aiEntry.entryDate,
+        debitAccount: aiEntry.debitAccount,
+        creditAccount: aiEntry.creditAccount,
+        amount: aiEntry.amount,
+        description: aiEntry.description
       });
 
-      // Create corresponding credit entry
-      await storage.createJournalEntry({
-        journalId: `${journalId}-CR`,
-        date: new Date(journalEntry.entryDate),
-        accountCode: journalEntry.creditAccount.replace(/\s+/g, '_').toUpperCase(),
-        accountName: journalEntry.creditAccount,
-        debitAmount: "0",
-        creditAmount: journalEntry.amount.toString(),
-        narration: journalEntry.description,
-        entity: 'Default',
+      // Create debit entry
+      const debitEntry = {
+        journalId: journalId,
+        date: new Date(aiEntry.entryDate),
+        accountCode: aiEntry.debitAccount.replace(/\s+/g, '_').toUpperCase(),
+        accountName: aiEntry.debitAccount,
+        debitAmount: aiEntry.amount.toString(),
+        creditAmount: "0.00",
+        narration: aiEntry.description,
+        entity: 'Default Company',
         documentId: document.id,
         tenantId,
         createdBy: userId
-      });
+      };
+      
+      console.log('Debit entry object:', debitEntry);
+      await storage.createJournalEntry(debitEntry);
+
+      // Create corresponding credit entry  
+      const creditEntry = {
+        journalId: `${journalId}-CR`,
+        date: new Date(aiEntry.entryDate),
+        accountCode: aiEntry.creditAccount.replace(/\s+/g, '_').toUpperCase(),
+        accountName: aiEntry.creditAccount,
+        debitAmount: "0.00",
+        creditAmount: aiEntry.amount.toString(),
+        narration: aiEntry.description,
+        entity: 'Default Company',
+        documentId: document.id,
+        tenantId,
+        createdBy: userId
+      };
+      
+      console.log('Credit entry object:', creditEntry);
+      await storage.createJournalEntry(creditEntry);
 
       entries.push(journalEntry);
     }
