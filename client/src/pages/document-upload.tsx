@@ -233,6 +233,29 @@ export default function DocumentUpload() {
         case 'cash_flow_statement':
           endpoint = '/api/reports/cash-flow';
           break;
+        case 'journal_entries':
+          // Use the working CSV download implementation from Document Management
+          const csvResponse = await fetch('/api/journal/download-csv');
+          
+          if (!csvResponse.ok) {
+            throw new Error(`HTTP error! status: ${csvResponse.status}`);
+          }
+          
+          const blob = await csvResponse.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `journal_entries_${new Date().toISOString().split('T')[0]}.csv`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+          
+          toast({
+            title: "Download Complete",
+            description: "Journal entries CSV downloaded successfully",
+          });
+          return; // Exit early for CSV download
         default:
           throw new Error(`Download not implemented for ${docName}`);
       }
@@ -1138,7 +1161,7 @@ export default function DocumentUpload() {
                               {(doc.fileSize / 1024 / 1024).toFixed(2)} MB
                             </TableCell>
                             <TableCell className="table-cell">
-                              {formatDistanceToNow(new Date(doc.createdAt), { addSuffix: true })}
+                              {doc.createdAt ? formatDistanceToNow(new Date(doc.createdAt), { addSuffix: true }) : 'Unknown'}
                             </TableCell>
                             <TableCell className="table-cell">
                               <div className="flex items-center space-x-2">
