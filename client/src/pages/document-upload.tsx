@@ -52,6 +52,8 @@ export default function DocumentUpload() {
   };
 
   const handleGenerate = async (docId: string, docName: string, event?: React.MouseEvent) => {
+    console.log('handleGenerate called:', { docId, docName, isAuthenticated });
+    
     // Prevent any form submission or navigation
     event?.preventDefault?.();
     event?.stopPropagation?.();
@@ -141,6 +143,7 @@ export default function DocumentUpload() {
           description: "Trial balance has been generated successfully and is displayed above.",
         });
         
+        console.log('Trial balance generation complete, preventing navigation');
         // Prevent any navigation
         return;
       }
@@ -414,9 +417,10 @@ export default function DocumentUpload() {
     // TODO: Implement refresh logic
   };
 
-  // Redirect to login if not authenticated
+  // Redirect to login if not authenticated (but not during API operations)
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
+    if (!isLoading && !isAuthenticated && !isGeneratingTrialBalance) {
+      console.log('Authentication check:', { isLoading, isAuthenticated, isGeneratingTrialBalance });
       toast({
         title: "Unauthorized",
         description: "You are logged out. Logging in again...",
@@ -427,7 +431,7 @@ export default function DocumentUpload() {
       }, 500);
       return;
     }
-  }, [isAuthenticated, isLoading, toast]);
+  }, [isAuthenticated, isLoading, isGeneratingTrialBalance, toast]);
 
   const { data: documents, isLoading: documentsLoading } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
