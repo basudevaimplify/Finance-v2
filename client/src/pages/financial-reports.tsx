@@ -22,6 +22,7 @@ export default function FinancialReports() {
   const queryClient = useQueryClient();
   const [selectedPeriod, setSelectedPeriod] = useState("Q3_2025");
   const [displayFormat, setDisplayFormat] = useState<'detailed' | 'compact'>('detailed');
+  const [enhancedTrialBalance, setEnhancedTrialBalance] = useState<any>(null);
   const [viewReportModal, setViewReportModal] = useState<{
     isOpen: boolean;
     statement: FinancialStatement | null;
@@ -304,6 +305,127 @@ export default function FinancialReports() {
       toast({
         title: "Deletion Failed",
         description: error.message || "Failed to delete journal entry",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Enhanced Trial Balance mutations
+  const generateEnhancedTrialBalanceMutation = useMutation({
+    mutationFn: async () => {
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
+      const response = await fetch('/api/reports/enhanced-trial-balance', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          period: selectedPeriod,
+          download: false
+        }),
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Enhanced Trial Balance Generated",
+        description: `Generated trial balance with ${data.entries.length} accounts. Total debits: ${data.totalDebitsText}, Total credits: ${data.totalCreditsText}`,
+      });
+      // Update the display with new data
+      setEnhancedTrialBalance(data);
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      
+      toast({
+        title: "Generation Failed",
+        description: error.message || "Failed to generate enhanced trial balance",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const downloadEnhancedTrialBalanceMutation = useMutation({
+    mutationFn: async () => {
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
+      const response = await fetch('/api/reports/enhanced-trial-balance', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          period: selectedPeriod,
+          download: true
+        }),
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      // Handle CSV download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `trial_balance_${selectedPeriod}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      return true;
+    },
+    onSuccess: () => {
+      toast({
+        title: "CSV Downloaded",
+        description: "Trial balance CSV file has been downloaded successfully",
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      
+      toast({
+        title: "Download Failed",
+        description: error.message || "Failed to download trial balance CSV",
         variant: "destructive",
       });
     },
@@ -808,9 +930,29 @@ export default function FinancialReports() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle>Trial Balance - {selectedPeriod}</CardTitle>
-                    <Badge className={trialBalance.isBalanced ? "badge-compliant" : "badge-non-compliant"}>
-                      {trialBalance.isBalanced ? "Balanced" : "Unbalanced"}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        onClick={() => generateEnhancedTrialBalanceMutation.mutate()}
+                        disabled={generateEnhancedTrialBalanceMutation.isPending}
+                        variant="outline"
+                        size="sm"
+                      >
+                        <RefreshCw className="h-4 w-4 mr-1" />
+                        Generate
+                      </Button>
+                      <Button
+                        onClick={() => downloadEnhancedTrialBalanceMutation.mutate()}
+                        disabled={downloadEnhancedTrialBalanceMutation.isPending}
+                        variant="outline"
+                        size="sm"
+                      >
+                        <Download className="h-4 w-4 mr-1" />
+                        Download
+                      </Button>
+                      <Badge className={trialBalance.isBalanced ? "badge-compliant" : "badge-non-compliant"}>
+                        {trialBalance.isBalanced ? "Balanced" : "Unbalanced"}
+                      </Badge>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -818,19 +960,30 @@ export default function FinancialReports() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Account Code</TableHead>
-                          <TableHead>Account Name</TableHead>
-                          <TableHead className="text-right">Debit Balance</TableHead>
-                          <TableHead className="text-right">Credit Balance</TableHead>
+                          <TableHead>Ledger Name</TableHead>
+                          <TableHead className="text-right">Debit</TableHead>
+                          <TableHead className="text-right">Credit</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {journalEntries && journalEntries.length > 0 ? (
+                        {enhancedTrialBalance && enhancedTrialBalance.entries ? (
+                          enhancedTrialBalance.entries.map((entry: any, index: number) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-medium">{entry.ledgerName}</TableCell>
+                              <TableCell className="text-right font-mono">
+                                {entry.debit > 0 ? `Rs ${entry.debit.toLocaleString('en-IN')}` : '-'}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {entry.credit > 0 ? `Rs ${entry.credit.toLocaleString('en-IN')}` : '-'}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : journalEntries && journalEntries.length > 0 ? (
                           (() => {
-                            // Group entries by account code and calculate net balances
-                            const accountBalances = {};
+                            // Fallback: Group entries by account code and calculate net balances
+                            const accountBalances: any = {};
                             
-                            journalEntries.forEach(entry => {
+                            journalEntries.forEach((entry: any) => {
                               const debitAmount = typeof entry.debitAmount === 'string' ? parseFloat(entry.debitAmount) : entry.debitAmount;
                               const creditAmount = typeof entry.creditAmount === 'string' ? parseFloat(entry.creditAmount) : entry.creditAmount;
                               
@@ -849,8 +1002,7 @@ export default function FinancialReports() {
                             
                             return Object.values(accountBalances).map((account) => (
                               <TableRow key={account.accountCode}>
-                                <TableCell className="font-mono">{account.accountCode}</TableCell>
-                                <TableCell>{account.accountName}</TableCell>
+                                <TableCell className="font-medium">{account.accountName}</TableCell>
                                 <TableCell className="text-right font-mono">
                                   {account.totalDebits > 0 ? formatCurrency(account.totalDebits) : '-'}
                                 </TableCell>
@@ -862,23 +1014,45 @@ export default function FinancialReports() {
                           })()
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                              No journal entries found
+                            <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                              No trial balance data found. Click "Generate" to create enhanced trial balance from uploaded journal entries.
                             </TableCell>
                           </TableRow>
                         )}
                         <TableRow className="border-t-2 font-semibold">
-                          <TableCell colSpan={2}>Total</TableCell>
+                          <TableCell>Total</TableCell>
                           <TableCell className="text-right">
-                            {formatCurrency(trialBalance.totalDebits)}
+                            {enhancedTrialBalance ? 
+                              enhancedTrialBalance.totalDebitsText : 
+                              formatCurrency(trialBalance.totalDebits)
+                            }
                           </TableCell>
                           <TableCell className="text-right">
-                            {formatCurrency(trialBalance.totalCredits)}
+                            {enhancedTrialBalance ? 
+                              enhancedTrialBalance.totalCreditsText : 
+                              formatCurrency(trialBalance.totalCredits)
+                            }
                           </TableCell>
                         </TableRow>
                       </TableBody>
                     </Table>
                   </div>
+                  {enhancedTrialBalance && (
+                    <div className="mt-4 p-4 bg-muted rounded-lg">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-muted-foreground">Report Type:</span>
+                        <span className="font-medium">{enhancedTrialBalance.reportType}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm mt-1">
+                        <span className="text-muted-foreground">Generated From:</span>
+                        <span className="font-medium">{enhancedTrialBalance.generatedFrom}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm mt-1">
+                        <span className="text-muted-foreground">Compliance:</span>
+                        <span className="font-medium">{enhancedTrialBalance.compliance?.join(', ')}</span>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
