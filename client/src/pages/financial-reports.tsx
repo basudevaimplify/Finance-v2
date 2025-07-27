@@ -315,41 +315,14 @@ export default function FinancialReports() {
     mutationFn: async () => {
       console.log('Starting enhanced trial balance generation for period:', selectedPeriod);
       
-      const token = localStorage.getItem('access_token');
-      console.log('Retrieved token:', token ? 'Token found' : 'No token');
-      
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-      
-      const requestBody = {
-        period: selectedPeriod,
-        download: false
-      };
-      console.log('Request body:', requestBody);
-      
-      const response = await fetch('/api/reports/enhanced-trial-balance', {
+      // Use the same authentication approach as other working mutations
+      return await apiRequest('/api/reports/enhanced-trial-balance', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(requestBody),
-        credentials: 'include',
+        body: JSON.stringify({
+          period: selectedPeriod,
+          download: false
+        }),
       });
-      
-      console.log('Response status:', response.status);
-      console.log('Response ok:', response.ok);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Response error:', errorText);
-        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
-      }
-      
-      const data = await response.json();
-      console.log('Response data:', data);
-      return data;
     },
     onSuccess: (data) => {
       toast({
@@ -384,10 +357,13 @@ export default function FinancialReports() {
 
   const downloadEnhancedTrialBalanceMutation = useMutation({
     mutationFn: async () => {
+      // For CSV download, we need direct fetch to handle binary response
       const token = localStorage.getItem('access_token');
       if (!token) {
         throw new Error('No authentication token found');
       }
+      
+      console.log('Starting CSV download for period:', selectedPeriod);
       
       const response = await fetch('/api/reports/enhanced-trial-balance', {
         method: 'POST',
@@ -406,17 +382,29 @@ export default function FinancialReports() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      // Handle CSV download
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `trial_balance_${selectedPeriod}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      // Handle CSV download - ensure we get text/csv content
+      const contentType = response.headers.get('content-type');
+      console.log('Download response content-type:', contentType);
+      
+      if (contentType && contentType.includes('text/csv')) {
+        // CSV response - handle as file download
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `trial_balance_${selectedPeriod}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        console.log('CSV file downloaded successfully');
+      } else {
+        // JSON response - log error
+        const text = await response.text();
+        console.error('Expected CSV but got:', contentType, text);
+        throw new Error('Expected CSV format but received different content type');
+      }
       
       return true;
     },
