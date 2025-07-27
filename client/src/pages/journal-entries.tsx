@@ -79,62 +79,35 @@ export default function JournalEntries() {
     },
   });
 
-  // Download CSV function
+  // Download CSV function (using same working implementation from Document Management)
   const handleDownloadCSV = async () => {
     setIsDownloading(true);
     try {
-      const token = localStorage.getItem('access_token');
-      console.log('Downloading CSV with token:', token?.substring(0, 20) + '...');
+      const response = await fetch('/api/journal/download-csv');
       
-      const response = await fetch('/api/journal/download-csv', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'text/csv',
-        },
-        credentials: 'include',
-      });
-
-      console.log('Download response status:', response.status, response.statusText);
-
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Download error response:', errorText);
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-
-      // Check if response is actually CSV
-      const contentType = response.headers.get('content-type');
-      console.log('Response content type:', contentType);
-
-      if (!contentType?.includes('text/csv') && !contentType?.includes('application/csv')) {
-        const responseText = await response.text();
-        console.error('Unexpected response content:', responseText);
-        throw new Error('Server did not return CSV file');
-      }
-
+      
       const blob = await response.blob();
-      console.log('CSV blob size:', blob.size, 'bytes');
-
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.style.display = 'none';
       a.href = url;
       a.download = `journal_entries_${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-
+      
       toast({
         title: "Download Successful",
-        description: "Journal entries CSV file has been downloaded.",
+        description: "Journal entries CSV downloaded successfully",
       });
     } catch (error) {
-      console.error('CSV download error:', error);
+      console.error("CSV download error:", error);
       toast({
-        title: "Download Failed", 
-        description: error instanceof Error ? error.message : "Failed to download CSV file. Please try again.",
+        title: "Download Failed",
+        description: `Failed to download CSV: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive",
       });
     } finally {
