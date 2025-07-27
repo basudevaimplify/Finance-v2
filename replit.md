@@ -10,6 +10,16 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+- **Enhanced Trial Balance Frontend Integration Debug (July 27, 2025)**: **IN PROGRESS** - Debugging Generate button error in Trial Balance frontend integration:
+  - **Issue Identified**: Frontend Generate button displays "Generation Failed: Failed to generate Trial Balance. Please try again." error despite backend API working correctly
+  - **Backend Verification**: Enhanced Trial Balance endpoint `/api/reports/enhanced-trial-balance` tested and returning correct JSON (6 ledger accounts, Rs 29,24,065.61 total)
+  - **CSV Download Working**: CSV generation confirmed functional with proper "Ledger Name", "Debit", "Credit" format
+  - **Authentication Debug**: Added comprehensive logging to frontend mutation to identify token and API response issues
+  - **Table Display Updated**: Updated Trial Balance table to show enhanced format with "Ledger Name", "Debit", "Credit" columns
+  - **Frontend State Management**: Enhanced trial balance state (`enhancedTrialBalance`) properly defined and connected to mutation
+  - **Error Handling Enhanced**: Added detailed console logging and improved error messages for debugging
+  - **Next Step**: Test Generate button with debug logging to identify specific frontend error
+
 - **Enhanced Financial Document Analysis System (July 27, 2025)**: **COMPLETED** - Successfully implemented comprehensive financial document analysis expert system with specialized report generation capabilities:
   - **Financial Document Analyzer Service**: Created `financialDocumentAnalyzer.ts` with expert-level analysis for uploaded CSV documents following Companies Act 2013, IndAS standards, GST/CGST rules, and Income Tax TDS rules
   - **Enhanced Trial Balance**: Generates trial balance directly from uploaded journal entry CSV files with proper debit/credit calculations and compliance validation

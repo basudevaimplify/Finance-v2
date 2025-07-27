@@ -313,10 +313,20 @@ export default function FinancialReports() {
   // Enhanced Trial Balance mutations
   const generateEnhancedTrialBalanceMutation = useMutation({
     mutationFn: async () => {
+      console.log('Starting enhanced trial balance generation for period:', selectedPeriod);
+      
       const token = localStorage.getItem('access_token');
+      console.log('Retrieved token:', token ? 'Token found' : 'No token');
+      
       if (!token) {
         throw new Error('No authentication token found');
       }
+      
+      const requestBody = {
+        period: selectedPeriod,
+        download: false
+      };
+      console.log('Request body:', requestBody);
       
       const response = await fetch('/api/reports/enhanced-trial-balance', {
         method: 'POST',
@@ -324,18 +334,22 @@ export default function FinancialReports() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          period: selectedPeriod,
-          download: false
-        }),
+        body: JSON.stringify(requestBody),
         credentials: 'include',
       });
       
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+      
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error('Response error:', errorText);
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
       }
       
-      return await response.json();
+      const data = await response.json();
+      console.log('Response data:', data);
+      return data;
     },
     onSuccess: (data) => {
       toast({
@@ -346,6 +360,8 @@ export default function FinancialReports() {
       setEnhancedTrialBalance(data);
     },
     onError: (error) => {
+      console.error('Enhanced Trial Balance generation error:', error);
+      
       if (isUnauthorizedError(error)) {
         toast({
           title: "Unauthorized",
@@ -360,7 +376,7 @@ export default function FinancialReports() {
       
       toast({
         title: "Generation Failed",
-        description: error.message || "Failed to generate enhanced trial balance",
+        description: `Failed to generate Trial Balance. ${error.message || 'Please try again.'}`,
         variant: "destructive",
       });
     },
