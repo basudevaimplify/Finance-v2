@@ -46,7 +46,7 @@ const noAuth = (req: any, res: any, next: any) => {
     },
     userId: 'demo-user',
     email: 'demo@example.com',
-    tenantId: null, // Will be handled by individual routes if needed
+    tenantId: '66a2a729-dfeb-4a96-b0bb-d65b91aeabb8', // Set the demo tenant ID
     role: 'admin'
   };
   next();
