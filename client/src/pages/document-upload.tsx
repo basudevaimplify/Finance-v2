@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -53,6 +53,9 @@ export default function DocumentUpload() {
 
   const handleGenerate = async (docId: string, docName: string, event?: React.MouseEvent) => {
     console.log('handleGenerate called:', { docId, docName, isAuthenticated });
+    
+    // Set API operation flag to prevent authentication redirects
+    apiOperationRef.current = true;
     
     // Prevent any form submission or navigation
     event?.preventDefault?.();
@@ -119,19 +122,21 @@ export default function DocumentUpload() {
         console.log('Trial balance data received:', data);
         
         // Transform the data to match our frontend structure
+        console.log('Transforming trial balance data:', data);
         const transformedData = {
           ledgers: data.entries || [],
           summary: {
-            totalDebits: data.totalDebits,
-            totalCredits: data.totalCredits,
-            isBalanced: data.isBalanced
+            totalDebits: data.totalDebits || 0,
+            totalCredits: data.totalCredits || 0,
+            isBalanced: data.isBalanced || false
           },
           metadata: {
-            reportType: data.reportType,
-            generatedFrom: data.generatedFrom,
-            compliance: data.compliance
+            reportType: data.reportType || 'Trial Balance',
+            generatedFrom: data.generatedFrom || 'Financial Documents',
+            compliance: data.compliance || 'Companies Act 2013'
           }
         };
+        console.log('Transformed data:', transformedData);
         
         setTrialBalanceData(transformedData);
         setIsGeneratingTrialBalance(false);
@@ -144,9 +149,14 @@ export default function DocumentUpload() {
         });
         
         console.log('Trial balance generation complete, preventing navigation');
+        // Reset API operation flag
+        apiOperationRef.current = false;
         // Prevent any navigation
         return;
       }
+      
+      // Reset API operation flag for non-trial balance documents
+      apiOperationRef.current = false;
       
       // For non-trial balance documents, show standard success message
       toast({
@@ -155,6 +165,9 @@ export default function DocumentUpload() {
       });
       
     } catch (error) {
+      // Reset API operation flag
+      apiOperationRef.current = false;
+      
       // Reset trial balance loading state on error
       if (docId === 'trial_balance') {
         setIsGeneratingTrialBalance(false);
@@ -417,10 +430,13 @@ export default function DocumentUpload() {
     // TODO: Implement refresh logic
   };
 
+  // Add a ref to track if we're in an API operation
+  const apiOperationRef = useRef(false);
+  
   // Redirect to login if not authenticated (but not during API operations)
   useEffect(() => {
-    if (!isLoading && !isAuthenticated && !isGeneratingTrialBalance) {
-      console.log('Authentication check:', { isLoading, isAuthenticated, isGeneratingTrialBalance });
+    if (!isLoading && !isAuthenticated && !isGeneratingTrialBalance && !apiOperationRef.current) {
+      console.log('Authentication check:', { isLoading, isAuthenticated, isGeneratingTrialBalance, apiOperation: apiOperationRef.current });
       toast({
         title: "Unauthorized",
         description: "You are logged out. Logging in again...",
@@ -428,7 +444,7 @@ export default function DocumentUpload() {
       });
       setTimeout(() => {
         window.location.href = "/api/login";
-      }, 500);
+      }, 2000); // Increased delay
       return;
     }
   }, [isAuthenticated, isLoading, isGeneratingTrialBalance, toast]);
