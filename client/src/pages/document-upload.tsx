@@ -51,7 +51,11 @@ export default function DocumentUpload() {
     });
   };
 
-  const handleGenerate = async (docId: string, docName: string) => {
+  const handleGenerate = async (docId: string, docName: string, event?: React.MouseEvent) => {
+    // Prevent any form submission or navigation
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    
     toast({
       title: "Generating Document",
       description: `Processing ${docName}... This may take a few moments.`,
@@ -131,22 +135,21 @@ export default function DocumentUpload() {
         setIsGeneratingTrialBalance(false);
         setActiveTab('trial-balance'); // Switch to trial balance tab
         
-        // Prevent any navigation
-        return;
-      }
-      
-      // Different success message for trial balance
-      if (docId === 'trial_balance') {
+        // Show success message for trial balance
         toast({
           title: "Trial Balance Generated",
           description: "Trial balance has been generated successfully and is displayed above.",
         });
-      } else {
-        toast({
-          title: "Document Generated",
-          description: `${docName} has been generated successfully. You can view it in the Financial Reports section.`,
-        });
+        
+        // Prevent any navigation
+        return;
       }
+      
+      // For non-trial balance documents, show standard success message
+      toast({
+        title: "Document Generated",
+        description: `${docName} has been generated successfully. You can view it in the Financial Reports section.`,
+      });
       
     } catch (error) {
       // Reset trial balance loading state on error
@@ -1268,10 +1271,11 @@ export default function DocumentUpload() {
                   <CardTitle>Enhanced Trial Balance</CardTitle>
                   <div className="flex items-center gap-2">
                     <Button
-                      onClick={() => handleGenerate('trial_balance', 'Trial Balance')}
+                      onClick={(e) => handleGenerate('trial_balance', 'Trial Balance', e)}
                       disabled={isGeneratingTrialBalance}
                       variant="outline"
                       size="sm"
+                      type="button"
                     >
                       <RefreshCw className={`h-4 w-4 mr-1 ${isGeneratingTrialBalance ? 'animate-spin' : ''}`} />
                       {isGeneratingTrialBalance ? 'Generating...' : 'Generate'}
