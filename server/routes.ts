@@ -3554,7 +3554,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               temperature: 0.1,
               maxTokens: 2000,
               model: "claude-sonnet-4-20250514",
-              systemPrompt: "You are ClassifierBot, an expert at identifying and classifying financial documents. Your role is to analyze document content and accurately categorize them into types like vendor invoices, sales registers, bank statements, GST returns, TDS certificates, and salary registers. Focus on precision and consistency in classification.",
+              systemPrompt: "You are ClassifierBot, an expert at identifying and classifying financial documents. Your role is to analyze document content and accurately categorize them into types like purchase register, sales registers, bank statements, GST returns, TDS certificates, and salary registers. Focus on precision and consistency in classification.",
               enabled: true,
             },
             journalBot: {

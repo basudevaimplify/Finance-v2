@@ -10,6 +10,13 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+- **Terminology Consistency Update (July 27, 2025)**: **COMPLETED** - Updated terminology throughout application for consistency:
+  - **Vendor Invoices → Purchase Register**: Replaced all instances of "Vendor Invoices" with "Purchase Register" for consistent terminology
+  - **Document Requirements**: Removed duplicate vendor_invoices entry, keeping only purchase_register in document upload page
+  - **System Prompts**: Updated AI agent prompts to use "purchase register" instead of "vendor invoices"
+  - **Description Updates**: Updated journal entries description to reference "purchase register" instead of "vendor invoices"
+  - **Consistent Terminology**: All references now use "Purchase Register" throughout the application
+
 - **CSV Download Error Fix (July 27, 2025)**: **COMPLETED** - Successfully resolved critical UUID parameter handling issue in CSV download functionality:
   - **Root Cause**: Storage layer was receiving "demo-user" string where UUID was expected in journal entries retrieval
   - **Parameter Fix**: Updated `getJournalEntries` calls to properly use tenant ID (UUID) instead of user ID (string) for filtering

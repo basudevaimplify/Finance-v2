@@ -345,22 +345,7 @@ export default function DocumentUpload() {
   // Define comprehensive document requirements
   const documentRequirements: DocumentRequirement[] = [
     // PRIMARY DOCUMENTS - Must be uploaded
-    {
-      id: 'vendor_invoices',
-      category: 'Primary Documents',
-      name: 'Vendor Invoices',
-      description: 'All vendor invoices and purchase documents',
-      priority: 'high',
-      frequency: 'monthly',
-      dueDate: '2025-01-31',
-      fileTypes: ['Excel', 'CSV', 'PDF'],
-      isRequired: true,
-      isUploaded: false,
-      uploadedFiles: [],
-      compliance: ['Companies Act 2013', 'GST Act'],
-      documentType: 'primary',
-      canGenerate: false
-    },
+
     {
       id: 'fixed_asset_register',
       category: 'Primary Documents',
@@ -495,7 +480,7 @@ export default function DocumentUpload() {
       id: 'journal_entries',
       category: 'Derived Documents',
       name: 'Journal Entries',
-      description: 'Generated automatically from vendor invoices, sales data, and bank transactions',
+      description: 'Generated automatically from purchase register, sales data, and bank transactions',
       priority: 'high',
       frequency: 'monthly',
       dueDate: '2025-01-31',
@@ -505,7 +490,7 @@ export default function DocumentUpload() {
       uploadedFiles: [],
       compliance: ['Companies Act 2013', 'IndAS'],
       documentType: 'derived',
-      derivedFrom: ['vendor_invoices', 'sales_register', 'bank_statements'],
+      derivedFrom: ['purchase_register', 'sales_register', 'bank_statements'],
       canGenerate: true
     },
     {
