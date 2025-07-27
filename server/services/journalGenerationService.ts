@@ -53,7 +53,7 @@ class JournalGenerationService {
       for (const document of completedDocuments) {
         try {
           // Check if journal entries already exist for this document
-          const existingEntries = await storage.getJournalEntries(document.id);
+          const existingEntries = await storage.getJournalEntries(document.id, tenantId);
           if (existingEntries && existingEntries.length > 0) {
             console.log(`Skipping document ${document.id} - journal entries already exist`);
             continue;
@@ -228,8 +228,9 @@ Generate maximum 5 entries. Use 2025-01-15 as default date.`;
 
   async generateCSVReport(userId: string, tenantId: string): Promise<string> {
     try {
-      // Get all journal entries for the user
-      const journalEntries = await storage.getJournalEntries(userId);
+
+      // Get all journal entries for the tenant
+      const journalEntries = await storage.getJournalEntries(undefined, tenantId);
       
       if (!journalEntries || journalEntries.length === 0) {
         throw new Error('No journal entries found. Please generate journal entries first.');

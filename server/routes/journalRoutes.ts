@@ -104,7 +104,7 @@ router.get('/', noAuth, async (req: any, res) => {
     // Use default tenant ID for demo purposes
     const tenantId = req.user.tenantId;
 
-    const journalEntries = await storage.getJournalEntries(userId);
+    const journalEntries = await storage.getJournalEntries(undefined, tenantId);
     
     // Transform entries to match expected format
     const formattedEntries = journalEntries.map(entry => ({

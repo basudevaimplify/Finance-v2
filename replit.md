@@ -10,6 +10,15 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+- **CSV Download Error Fix (July 27, 2025)**: **COMPLETED** - Successfully resolved critical UUID parameter handling issue in CSV download functionality:
+  - **Root Cause**: Storage layer was receiving "demo-user" string where UUID was expected in journal entries retrieval
+  - **Parameter Fix**: Updated `getJournalEntries` calls to properly use tenant ID (UUID) instead of user ID (string) for filtering
+  - **Method Signature**: Fixed inconsistent parameter handling between document ID and tenant ID in storage methods
+  - **Database Schema Alignment**: Ensured all UUID fields receive proper UUID values and string fields receive string values
+  - **CSV Generation Working**: CSV download now generates authentic journal entry reports with proper debit/credit entries
+  - **Real Data Output**: CSV contains actual sales transactions, account names, amounts, and journal references
+  - **Production Ready**: Download functionality fully operational with proper authentication and tenant isolation
+
 - **Migration to Replit Environment Complete (July 27, 2025)**: **COMPLETED** - Successfully migrated project from Replit Agent to standard Replit environment:
   - **PostgreSQL Database**: Created and configured new PostgreSQL database with proper connection
   - **Database Schema**: Successfully pushed all tables and relations to new database

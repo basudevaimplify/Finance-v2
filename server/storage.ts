@@ -363,7 +363,6 @@ export class DatabaseStorage implements IStorage {
         .where(eq(journalEntries.tenantId, tenantId))
         .orderBy(desc(journalEntries.date));
     }
-    
     return await db
       .select()
       .from(journalEntries)
