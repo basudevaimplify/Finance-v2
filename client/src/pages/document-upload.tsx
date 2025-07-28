@@ -41,6 +41,9 @@ export default function DocumentUpload() {
   const [activeTab, setActiveTab] = useState<string>('requirements');
   const [trialBalanceData, setTrialBalanceData] = useState<any>(null);
   const [isGeneratingTrialBalance, setIsGeneratingTrialBalance] = useState(false);
+  const [bankReconciliationData, setBankReconciliationData] = useState<any>(null);
+  const [isGeneratingBankReconciliation, setIsGeneratingBankReconciliation] = useState(false);
+  const apiOperationRef = useRef(false);
 
   // Action handlers for document operations
   const handleUpload = (docId: string) => {
@@ -85,7 +88,9 @@ export default function DocumentUpload() {
           endpoint = '/api/journal/generate';
           break;
         case 'bank_reconciliation':
-          endpoint = '/api/reports/bank-reconciliation';
+          // Special handling for bank reconciliation to update state
+          setIsGeneratingBankReconciliation(true);
+          endpoint = '/api/reports/enhanced-bank-reconciliation';
           break;
         case 'trial_balance':
           // Special handling for trial balance to update state
@@ -155,6 +160,43 @@ export default function DocumentUpload() {
         return;
       }
       
+      // Store bank reconciliation data if it's a bank reconciliation generation
+      if (docId === 'bank_reconciliation') {
+        console.log('Bank reconciliation data received:', data);
+        
+        // Transform the data to match our frontend structure
+        const transformedData = {
+          entries: data.entries || [],
+          summary: {
+            totalMatched: data.totalMatched || 0,
+            totalUnmatched: data.totalUnmatched || 0,
+            matchingAccuracy: data.matchingAccuracy || 0
+          },
+          metadata: {
+            reportType: data.reportType || 'Bank Reconciliation',
+            generatedFrom: data.generatedFrom || 'Bank Statement and Journal Entries',
+            compliance: data.compliance || ['Companies Act 2013', 'Banking Regulations']
+          }
+        };
+        console.log('Transformed bank reconciliation data:', transformedData);
+        
+        setBankReconciliationData(transformedData);
+        setIsGeneratingBankReconciliation(false);
+        setActiveTab('bank-reconciliation'); // Switch to bank reconciliation tab
+        
+        // Show success message for bank reconciliation
+        toast({
+          title: "Bank Reconciliation Generated",
+          description: "Bank reconciliation has been generated successfully and is displayed above.",
+        });
+        
+        console.log('Bank reconciliation generation complete, preventing navigation');
+        // Reset API operation flag
+        apiOperationRef.current = false;
+        // Prevent any navigation
+        return;
+      }
+      
       // Reset API operation flag for non-trial balance documents
       apiOperationRef.current = false;
       
@@ -168,9 +210,12 @@ export default function DocumentUpload() {
       // Reset API operation flag
       apiOperationRef.current = false;
       
-      // Reset trial balance loading state on error
+      // Reset loading states on error
       if (docId === 'trial_balance') {
         setIsGeneratingTrialBalance(false);
+      }
+      if (docId === 'bank_reconciliation') {
+        setIsGeneratingBankReconciliation(false);
       }
       
       toast({
@@ -375,6 +420,51 @@ export default function DocumentUpload() {
             description: "Journal entries CSV downloaded successfully",
           });
           return; // Exit early for CSV download
+        case 'bank_reconciliation':
+          // Use enhanced bank reconciliation for CSV download
+          const bankRecToken = localStorage.getItem('access_token');
+          if (!bankRecToken) {
+            throw new Error('No authentication token found');
+          }
+          
+          const bankRecResponse = await fetch('/api/reports/enhanced-bank-reconciliation', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${bankRecToken}`,
+            },
+            body: JSON.stringify({ period: 'Q3_2025', download: true }),
+            credentials: 'include',
+          });
+          
+          if (!bankRecResponse.ok) {
+            throw new Error(`HTTP error! status: ${bankRecResponse.status}`);
+          }
+          
+          const bankRecContentType = bankRecResponse.headers.get('content-type');
+          if (bankRecContentType && bankRecContentType.includes('text/csv')) {
+            const blob = await bankRecResponse.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `bank_reconciliation_Q3_2025.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            // Reset API operation flag
+            apiOperationRef.current = false;
+            
+            toast({
+              title: "Download Complete",
+              description: "Bank Reconciliation CSV downloaded successfully",
+            });
+            return; // Exit early for CSV download
+          } else {
+            throw new Error('Expected CSV format but received different content type');
+          }
+          break;
         default:
           throw new Error(`Download not implemented for ${docName}`);
       }
@@ -447,8 +537,7 @@ export default function DocumentUpload() {
     // TODO: Implement refresh logic
   };
 
-  // Add a ref to track if we're in an API operation
-  const apiOperationRef = useRef(false);
+
   
   // Redirect to login if not authenticated (but not during API operations)
   useEffect(() => {
@@ -935,11 +1024,12 @@ export default function DocumentUpload() {
         </Card>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="requirements">Document Requirements</TabsTrigger>
             <TabsTrigger value="upload">Upload Documents</TabsTrigger>
             <TabsTrigger value="uploaded">Uploaded Files</TabsTrigger>
             <TabsTrigger value="trial-balance">Trial Balance</TabsTrigger>
+            <TabsTrigger value="bank-reconciliation">Bank Reconciliation</TabsTrigger>
           </TabsList>
 
           <TabsContent value="requirements" className="space-y-4">
@@ -1431,6 +1521,143 @@ export default function DocumentUpload() {
                     <div className="text-sm text-muted-foreground">
                       <p>Generated from {trialBalanceData.metadata?.generatedFrom || 'uploaded journal entries'}</p>
                       <p>Compliance: {trialBalanceData.metadata?.compliance?.join(', ') || 'Companies Act 2013, IndAS standards'}</p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="bank-reconciliation" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Enhanced Bank Reconciliation</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={(e) => handleGenerate('bank_reconciliation', 'Bank Reconciliation', e)}
+                      disabled={isGeneratingBankReconciliation}
+                      variant="outline"
+                      size="sm"
+                      type="button"
+                    >
+                      <RefreshCw className={`h-4 w-4 mr-1 ${isGeneratingBankReconciliation ? 'animate-spin' : ''}`} />
+                      {isGeneratingBankReconciliation ? 'Generating...' : 'Generate'}
+                    </Button>
+                    <Button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleDownload('bank_reconciliation', 'Bank Reconciliation');
+                      }}
+                      disabled={!bankReconciliationData}
+                      variant="outline"
+                      size="sm"
+                      type="button"
+                    >
+                      <Download className="h-4 w-4 mr-1" />
+                      Download CSV
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Generate bank reconciliation from uploaded bank statements and journal entries with transaction matching
+                </p>
+              </CardHeader>
+              <CardContent>
+                {isGeneratingBankReconciliation ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                      <span>Generating bank reconciliation from bank statements and journal entries...</span>
+                    </div>
+                  </div>
+                ) : !bankReconciliationData ? (
+                  <div className="text-center py-8">
+                    <Calculator className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-lg font-medium">No bank reconciliation generated yet</p>
+                    <p className="text-sm text-muted-foreground">
+                      Click Generate to create bank reconciliation from uploaded bank statements and journal entries
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Bank Reconciliation Summary */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="text-center">
+                            <p className="text-sm font-medium text-muted-foreground">Matched Transactions</p>
+                            <p className="text-2xl font-bold text-green-600">
+                              {bankReconciliationData.summary?.totalMatched || 0}
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="text-center">
+                            <p className="text-sm font-medium text-muted-foreground">Unmatched Transactions</p>
+                            <p className="text-2xl font-bold text-red-600">
+                              {bankReconciliationData.summary?.totalUnmatched || 0}
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="text-center">
+                            <p className="text-sm font-medium text-muted-foreground">Matching Accuracy</p>
+                            <p className="text-2xl font-bold text-blue-600">
+                              {bankReconciliationData.summary?.matchingAccuracy || 0}%
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Bank Reconciliation Table */}
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[120px]">Date</TableHead>
+                            <TableHead className="w-[300px]">Particulars</TableHead>
+                            <TableHead className="text-right w-[150px]">Bank Amount</TableHead>
+                            <TableHead className="text-right w-[150px]">Book Amount</TableHead>
+                            <TableHead className="w-[120px]">Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {bankReconciliationData.entries?.map((entry: any, index: number) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-medium">
+                                {entry.date || '-'}
+                              </TableCell>
+                              <TableCell>
+                                {entry.particulars || 'N/A'}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {entry.bankAmount && entry.bankAmount > 0 ? `₹${entry.bankAmount.toLocaleString('en-IN')}` : '-'}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {entry.bookAmount && entry.bookAmount > 0 ? `₹${entry.bookAmount.toLocaleString('en-IN')}` : '-'}
+                              </TableCell>
+                              <TableCell>
+                                <Badge className={entry.matchStatus === 'Matched' ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
+                                  {entry.matchStatus}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          )) || []}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Additional Info */}
+                    <div className="text-sm text-muted-foreground">
+                      <p>Generated from {bankReconciliationData.metadata?.generatedFrom || 'Bank Statement and Journal Entry CSVs'}</p>
+                      <p>Compliance: {Array.isArray(bankReconciliationData.metadata?.compliance) ? bankReconciliationData.metadata.compliance.join(', ') : 'Companies Act 2013, Banking Regulations'}</p>
                     </div>
                   </div>
                 )}
